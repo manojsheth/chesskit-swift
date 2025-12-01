@@ -111,8 +111,6 @@ extension PGNParser {
         if let position = game.positions[currentMoveIndex] {
           if let move = SANParser.parse(move: san, in: position) {
             currentMoveIndex = game.make(move: move, from: currentMoveIndex)
-          } else {
-            throw .invalidMove(san)
           }
         }
       } else {
@@ -134,8 +132,6 @@ extension PGNParser {
             let move = SANParser.parse(move: san, in: position)
           {
             currentMoveIndex = game.make(move: move, from: currentMoveIndex)
-          } else {
-            throw .invalidMove(san)
           }
         case let .annotation(annotation):
           if let rawValue = firstMatch(
@@ -167,7 +163,7 @@ extension PGNParser {
           game.annotate(moveAt: currentMoveIndex, comment: comment)
         case .variationStart:
           variationStack.push(currentMoveIndex)
-          currentMoveIndex = currentMoveIndex.previous
+            currentMoveIndex = game.moves.index(before: currentMoveIndex)
         case .variationEnd:
           if let index = variationStack.pop() {
             currentMoveIndex = index

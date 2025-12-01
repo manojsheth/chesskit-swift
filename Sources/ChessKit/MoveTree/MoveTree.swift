@@ -68,13 +68,14 @@ public struct MoveTree: Codable, Hashable, Sendable {
 
     var newIndex = moveIndex.next
 
+    while indices.contains(newIndex) {
+        newIndex.variation += 1
+    }
+
     if parent.next == nil {
       parent.next = newNode
     } else {
       parent.children.append(newNode)
-      while indices.contains(newIndex) {
-        newIndex.variation += 1
-      }
     }
 
     Self.nodeLock.withLock {
