@@ -347,7 +347,46 @@ extension Position {
     case blackModerateTimeControlPressure = "$137"
     case whiteSevereTimeControlPressure = "$138"
     case blackSevereTimeControlPressure = "$139"
-  }
+      // MARK: - Non-Standard NAGs ($140 - $255)
+      // Note: These definitions are primarily used by ChessPad and are not
+      // part of the official PGN standard.
+
+      // ChessPad-defined tactical/commentary NAGs ($140 - $146)
+      case withIdea = "$140"
+      case aimedAgainst = "$141"
+      case betterIs = "$142"
+      case worseIs = "$143"
+      case equivalentIs = "$144"
+      case editorialComment = "$145"
+      case novelty = "$146"
+
+      // arslanovchess.com-defined tactical NAGs ($147 - $148)
+      case rareBrilliantMove = "$147" // A rare, non-standard, hard to find brilliant move (!!!)
+      case dubiousButDangerous = "$148" // Objectively dubious, but practically dangerous (!??)
+
+      // Ranges $149–$219 and $222–$237 are not defined.
+
+      // ChessPad-defined UI/Board/Positional NAGs ($220 - $255)
+      case diagram = "$220"
+      case diagramFromBlack = "$221"
+      case spaceAdvantage = "$238"
+      case fileColumn = "$239"
+      case diagonal = "$240"
+      case centre = "$241"
+      case kingSide = "$242"
+      case queenSide = "$243"
+      case weakPoint = "$244"
+      case ending = "$245"
+      case bishopPair = "$246"
+      case oppositeBishops = "$247"
+      case sameBishops = "$248"
+      case connectedPawns = "$249"
+      case isolatedPawns = "$250"
+      case doubledPawns = "$251"
+      case passedPawn = "$252"
+      case pawnMajority = "$253"
+      case with = "$254"
+      case without = "$255"  }
 
 }
 
