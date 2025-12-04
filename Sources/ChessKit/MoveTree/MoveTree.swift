@@ -20,9 +20,58 @@ public struct MoveTree: Codable, Hashable, Sendable {
   private(set) var lastMainVariationIndex: Index = .minimum
 
   /// Dictionary representation of the tree for faster access.
-  private(set) var dictionary: [Index: Node] = [:]
-  /// The root node of the tree.
-  private var root: Node?
+  private(set) var dictionary: [Index: Node]
+
+  /// The root node of the tree, a dummy node representing the beginning of the game.
+  private var rootNode: Node { dictionary[.minimum]! }
+
+  /// A dummy move to associate with the `rootNode`.
+  private static var dummyMove: Move {
+    let dummyPiece = Piece(.pawn, color: .white, square: .a1)
+    return Move(result: .move, piece: dummyPiece, start: .a1, end: .a1)
+  }
+
+  public init() {
+    let dummyNode = Node(move: Self.dummyMove)
+    dummyNode.index = .minimum
+    self.dictionary = [.minimum: dummyNode]
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case minimumIndex, lastMainVariationIndex, dictionary
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.minimumIndex = try container.decodeIfPresent(Index.self, forKey: .minimumIndex) ?? .minimum
+    self.lastMainVariationIndex = try container.decodeIfPresent(Index.self, forKey: .lastMainVariationIndex) ?? .minimum
+    self.dictionary = try container.decode([Index: Node].self, forKey: .dictionary)
+
+    if self.dictionary[.minimum] == nil {
+      let dummyNode = Node(move: Self.dummyMove)
+      dummyNode.index = .minimum
+      self.dictionary[.minimum] = dummyNode
+
+      let oldRoots = dictionary.values.filter { $0.previous == nil }
+
+      if let firstOldRoot = oldRoots.first {
+        dummyNode.next = firstOldRoot
+        firstOldRoot.previous = dummyNode
+
+        oldRoots.dropFirst().forEach { variationRoot in
+          dummyNode.children.append(variationRoot)
+          variationRoot.previous = dummyNode
+        }
+      }
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(minimumIndex, forKey: .minimumIndex)
+    try container.encode(lastMainVariationIndex, forKey: .lastMainVariationIndex)
+    try container.encode(dictionary, forKey: .dictionary)
+  }
 
   /// A set containing the indices of all the moves stored in the tree.
   public var indices: [Index] {
@@ -37,8 +86,8 @@ public struct MoveTree: Codable, Hashable, Sendable {
   ///
   /// - parameter move: The move to add to the tree.
   /// - parameter moveIndex: The `MoveIndex` of the parent move, if applicable.
-  /// If `moveIndex` is `nil`, the move tree is cleared and the provided
-  /// move is set to the `head` of the move tree.
+  /// If `moveIndex` is `nil`, the move is added as a child of the root,
+  /// representing a first move or a variation on the first move.
   ///
   /// - returns: The move index resulting from the addition of the move.
   ///
@@ -48,40 +97,35 @@ public struct MoveTree: Codable, Hashable, Sendable {
     toParentIndex moveIndex: Index? = nil
   ) -> Index {
     let newNode = Node(move: move)
+    let parentIndex = moveIndex ?? .minimum
+    let parent = dictionary[parentIndex]!
 
-    guard let root, let moveIndex else {
-      let index = minimumIndex.next
-
-      newNode.index = index
-      self.root = newNode
-
-      dictionary = [index: newNode]
-
-      if index.variation == Index.mainVariation {
-        lastMainVariationIndex = index
-      }
-      return index
-    }
-
-    let parent = dictionary[moveIndex] ?? root
     newNode.previous = parent
 
-    var newIndex = moveIndex.next
-
+    // First, find a unique index for the new node.
+    // Start with the logical next index and increment the variation
+    // number until an unused index is found.
+    var newIndex = parentIndex.next
     while indices.contains(newIndex) {
-        newIndex.variation += 1
+      newIndex.variation += 1
     }
 
+    // Now, attach the node to the tree structure.
+    // If the parent has no main line continuation, this new node becomes it.
     if parent.next == nil {
       parent.next = newNode
     } else {
+      // Otherwise, the parent already has a main line continuation,
+      // so this new node is an alternative variation.
       parent.children.append(newNode)
     }
+
+    // Assign the determined unique index to the new node.
+    newNode.index = newIndex
 
     Self.nodeLock.withLock {
       dictionary[newIndex] = newNode
     }
-    newNode.index = newIndex
 
     if newIndex.variation == Index.mainVariation {
       lastMainVariationIndex = newIndex
@@ -94,17 +138,13 @@ public struct MoveTree: Codable, Hashable, Sendable {
   /// move contained at `index`.
   public func nextIndex(containing move: Move, for index: Index) -> Index? {
     guard let node = dictionary[index] else {
-      if index == minimumIndex, let root, root.move == move {
-        return root.index
-      } else {
-        return nil
-      }
+      return nil
     }
 
     if let next = node.next, next.move == move {
       return next.index
     } else {
-      return node.children.filter { $0.move == move }.first?.index
+      return node.children.first { $0.move == move }?.index
     }
   }
 
@@ -112,22 +152,21 @@ public struct MoveTree: Codable, Hashable, Sendable {
   ///
   /// - parameter index: The index from which to generate the history.
   /// - returns: An array of move indices sorted from beginning to end with
-  /// the end being the provided `index`.
+  /// the end being the provided `index`. An empty array is returned if
+  /// `index` is the `minimumIndex`.
   ///
   /// For chess this would represent an array of all the move indices
   /// from the starting move until the move defined by `index`, accounting
   /// for any branching variations in between.
   public func history(for index: Index) -> [Index] {
-    let index = index == .minimum ? .minimum.next : index
-    var currentNode = dictionary[index]
+    guard let startNode = dictionary[index], index != .minimum else { return [] }
+
+    var currentNode: Node? = startNode
     var history: [Index] = []
 
-    while currentNode != nil {
-      if let node = currentNode {
-        history.append(node.index)
-      }
-
-      currentNode = currentNode?.previous
+    while let node = currentNode, node.index != .minimum {
+      history.append(node.index)
+      currentNode = node.previous
     }
 
     return history.reversed()
@@ -142,7 +181,6 @@ public struct MoveTree: Codable, Hashable, Sendable {
   /// from the move after the move defined by `index` to the last move
   /// of the variation.
   public func future(for index: Index) -> [Index] {
-    let index = index == .minimum ? .minimum.next : index
     var currentNode = dictionary[index]
     var future: [Index] = []
 
@@ -199,13 +237,20 @@ public struct MoveTree: Codable, Hashable, Sendable {
     from startIndex: Index,
     to endIndex: Index
   ) -> [(direction: PathDirection, index: Index)] {
+    if startIndex == endIndex { return [] }
+
+    if startIndex == .minimum {
+      return history(for: endIndex).map { (.forward, $0) }
+    }
+    if endIndex == .minimum {
+      return history(for: startIndex).reversed().map { (.reverse, $0) }
+    }
+
     var results = [(PathDirection, Index)]()
     let startHistory = history(for: startIndex)
     let endHistory = history(for: endIndex)
 
-    if startIndex == endIndex {
-      // keep results array empty
-    } else if startHistory.contains(endIndex) {
+    if startHistory.contains(endIndex) {
       results = indices(between: startIndex, and: endIndex)
         .map { (.reverse, $0) }
     } else if endHistory.contains(startIndex) {
@@ -219,7 +264,10 @@ public struct MoveTree: Codable, Hashable, Sendable {
         let startLCAIndex = startHistory.firstIndex(where: { $0 == lca }),
         let endLCAIndex = endHistory.firstIndex(where: { $0 == lca })
       else {
-        return []
+        // If no common ancestor, it means they branch from the root.
+        let reversePath = startHistory.reversed().map { (PathDirection.reverse, $0) }
+        let forwardPath = endHistory.map { (PathDirection.forward, $0) }
+        return reversePath + forwardPath
       }
 
       let startToLCAPath = startHistory[startLCAIndex...]
@@ -246,7 +294,7 @@ public struct MoveTree: Codable, Hashable, Sendable {
 
   /// Whether the tree is empty or not.
   public var isEmpty: Bool {
-    root == nil
+    rootNode.next == nil && rootNode.children.isEmpty
   }
 
   /// Annotates the move at the provided index.
@@ -357,7 +405,15 @@ public struct MoveTree: Codable, Hashable, Sendable {
   /// Returns the ``MoveTree`` as an array of PGN
   /// (Portable Game Format) elements.
   public var pgnRepresentation: [PGNElement] {
-    pgn(for: root)
+    var result = pgn(for: rootNode.next)
+
+    rootNode.children.forEach { child in
+      result.append(.variationStart)
+      result.append(contentsOf: pgn(for: child))
+      result.append(.variationEnd)
+    }
+
+    return result
   }
 
 }
@@ -421,6 +477,8 @@ extension MoveTree {
     init(start: Node?) {
       current = start
     }
+
+
 
     mutating func next() -> Node? {
       defer { current = current?.next }

@@ -58,6 +58,7 @@ public struct Move: Codable, Hashable, Sendable {
   /// The comment associated with a move.
   public var comment: String
 
+ 
   /// Initialize a move with the given characteristics.
   public init(
     result: Result,
