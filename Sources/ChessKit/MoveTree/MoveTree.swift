@@ -98,7 +98,11 @@ public struct MoveTree: Codable, Hashable, Sendable {
   ) -> Index {
     let newNode = Node(move: move)
     let parentIndex = moveIndex ?? .minimum
-    let parent = dictionary[parentIndex]!
+    guard let parent = dictionary[parentIndex] else {
+        // This case should ideally not happen if the caller provides valid indices.
+        // A fatal error is appropriate here because the tree is in an inconsistent state.
+        fatalError("CRITICAL: Parent node not found at index \(parentIndex) when trying to add move \(move.san).")
+    }
 
     newNode.previous = parent
 
@@ -106,17 +110,30 @@ public struct MoveTree: Codable, Hashable, Sendable {
     // Start with the logical next index and increment the variation
     // number until an unused index is found.
     var newIndex = parentIndex.next
-    while indices.contains(newIndex) {
+    
+    // --- DEBUGGING CHECK 1: Ensure new index is greater than parent ---
+    // A new index should always be "greater" than its parent according to the Index comparison logic.
+    assert(newIndex > parentIndex, "DEBUG: New move index \(newIndex) is not greater than its parent \(parentIndex).")
+
+    while dictionary[newIndex] != nil { // More direct check than `indices.contains()`
       newIndex.variation += 1
     }
+    
+    // --- DEBUGGING CHECK 2: Confirm the found index is truly unused ---
+    // This assertion acts as a safeguard. If the loop above has a logic error, this will catch it.
+    assert(dictionary[newIndex] == nil, "CRITICAL: Attempting to overwrite an existing move at index \(newIndex). This should never happen. Parent: \(parentIndex), New Move: \(move.san)")
 
     // Now, attach the node to the tree structure.
     // If the parent has no main line continuation, this new node becomes it.
     if parent.next == nil {
+      // --- DEBUGGING LOG ---
+      print("DEBUG: Adding '\(move.san)' as mainline move at \(newIndex) to parent \(parentIndex)")
       parent.next = newNode
     } else {
       // Otherwise, the parent already has a main line continuation,
       // so this new node is an alternative variation.
+      // --- DEBUGGING LOG ---
+      print("DEBUG: Adding '\(move.san)' as variation at \(newIndex) to parent \(parentIndex)")
       parent.children.append(newNode)
     }
 
@@ -126,6 +143,9 @@ public struct MoveTree: Codable, Hashable, Sendable {
     Self.nodeLock.withLock {
       dictionary[newIndex] = newNode
     }
+
+    // --- DEBUGGING CHECK 3: Verify the node was actually added ---
+    assert(dictionary[newIndex] != nil, "CRITICAL: Failed to add node at index \(newIndex) after acquiring lock.")
 
     if newIndex.variation == Index.mainVariation {
       lastMainVariationIndex = newIndex

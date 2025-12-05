@@ -25,67 +25,98 @@ extension PGNParser {
     // MARK: Private
 
     private static func tokenize(moveText: String) throws(PGNParser.Error) -> [Token] {
-      var inlineMoveText = moveText.components(separatedBy: .newlines).joined(separator: "")
+        var inlineMoveText = moveText.components(separatedBy: .newlines).joined(separator: "")
         
-      var resultToken: Token? = nil
-      var moves = inlineMoveText.components(separatedBy: .whitespaces)
-      
-      if let resultMove = moves.popLast() {
-        var isValidResult = true
-        for c in resultMove {
-          isValidResult = TokenType.result.isValid(character: c)
-          if !isValidResult {
-            break
-          }
-        }
-          
-        if isValidResult,
-          let token = TokenType.result.convert(resultMove) {
-          resultToken = token
-          inlineMoveText = moves.joined(separator: " ")
-        }
-      }
+        var resultToken: Token? = nil
+        var moves = inlineMoveText.components(separatedBy: .whitespaces)
         
-      var iterator = inlineMoveText.makeIterator()
-
-      var tokens = [Token]()
-      var currentTokenType = TokenType.none
-      var currentToken = ""
-
-      while let c = iterator.next() {
-        if c == "{" {
-          currentTokenType = .comment
-        } else if c == "}" {
-          if currentTokenType != .comment {
-            throw .unpairedCommentDelimiter
-          } else {
-            if !currentToken.isEmpty, let token = currentTokenType.convert(currentToken) {
-              tokens.append(token)
+        if let resultMove = moves.popLast() {
+            var isValidResult = true
+            for c in resultMove {
+                isValidResult = TokenType.result.isValid(character: c)
+                if !isValidResult {
+                    break
+                }
             }
-
-            currentTokenType = .none
-          }
-        } else if currentTokenType == .comment || currentTokenType.isValid(character: c) {
-          currentToken += String(c)
-        } else {
-          if !currentToken.isEmpty, let token = currentTokenType.convert(currentToken) {
-            tokens.append(token)
-          }
-
-          currentTokenType = .match(character: c)
-          currentToken = String(c)
+            
+            if isValidResult,
+               let token = TokenType.result.convert(resultMove) {
+                resultToken = token
+                inlineMoveText = moves.joined(separator: " ")
+            }
         }
-      }
-
-      if !currentToken.isEmpty, let token = currentTokenType.convert(currentToken) {
-        tokens.append(token)
-      }
         
-      if let resultToken {
-        tokens.append(resultToken)
-      }
-
-      return tokens
+        var iterator = inlineMoveText.makeIterator()
+        
+        var tokens = [Token]()
+        var currentTokenType = TokenType.none
+        var currentToken = ""
+        var commentDepth = 0
+        
+        while let c = iterator.next() {
+            // Handle stateful comment parsing first.
+            if c == "{" {
+                if commentDepth == 0 { // Entering the outermost comment
+                    // Flush any pending token before starting a comment.
+                    if !currentToken.isEmpty, let token = currentTokenType.convert(currentToken) {
+                        tokens.append(token)
+                    }
+                    currentToken = ""
+                    currentTokenType = .comment
+                } else { // Nested comment, '{' is part of the text
+                    currentToken += String(c)
+                }
+                commentDepth += 1
+                continue
+            } else if c == "}" {
+                guard commentDepth > 0 else { throw .unpairedCommentDelimiter }
+                commentDepth -= 1
+                
+                if commentDepth == 0 { // Exiting the outermost comment
+                    // Flush the completed comment token.
+                    if let token = currentTokenType.convert(currentToken) {
+                        tokens.append(token)
+                    }
+                    currentToken = ""
+                    currentTokenType = .none
+                } else { // Still inside a nested comment, '}' is part of the text
+                    currentToken += String(c)
+                }
+                continue
+            }
+            
+            // If we are inside a comment, accumulate and skip other logic.
+            if commentDepth > 0 {
+                currentToken += String(c)
+                continue
+            }
+            
+            // Handle token accumulation for all other types.
+            if currentTokenType.isValid(character: c) {
+                currentToken += String(c)
+            } else {
+                // Character does not match current token type, so flush the old one and start a new one.
+                if !currentToken.isEmpty, let token = currentTokenType.convert(currentToken) {
+                    tokens.append(token)
+                }
+                currentTokenType = .match(character: c)
+                currentToken = String(c)
+            }
+        }
+        
+        // After the loop, ensure all comments were closed.
+        guard commentDepth == 0 else { throw .unpairedCommentDelimiter }
+        
+        // Flush any remaining token.
+        if !currentToken.isEmpty, let token = currentTokenType.convert(currentToken) {
+            tokens.append(token)
+        }
+        
+        if let resultToken {
+            tokens.append(resultToken)
+        }
+        
+        return tokens
     }
 
     private static func parse(
@@ -120,19 +151,58 @@ extension PGNParser {
       // iterate through remaining tokens
 
       var variationStack = Stack<MoveTree.Index>()
+      var lastParsedMoveNumber: Int?
+      var tokenNumber = 0
 
       while let token = iterator.next() {
         currentToken = token
-
+        tokenNumber += 1
         switch currentToken {
-        case .none, .number, .result:
+        case .none, .result:
           break
+        case let .number(numberString):
+            if let n = Int(numberString.prefix { $0 != "." }) {
+                lastParsedMoveNumber = n
+            }
         case let .san(san):
-          if let position = game.positions[currentMoveIndex],
-            let move = SANParser.parse(move: san, in: position)
-          {
-            currentMoveIndex = game.make(move: move, from: currentMoveIndex)
-          }
+            guard let position = game.positions[currentMoveIndex] else {
+                // This indicates a critical internal error, as the parser's state is inconsistent.
+                throw .unexpectedMoveTextToken
+            }
+            
+            guard let move = SANParser.parse(move: san, in: position) else {
+                // The move SAN is invalid for the current board position. This is a PGN content error.
+                let historyIndices = game.moves.history(for: currentMoveIndex)
+                let historyMoves = historyIndices.compactMap { game.moves[$0] }
+                
+                var moveSequence = ""
+                var moveNumber = 1
+                for move in historyMoves {
+                    if move.piece.color == .white {
+                        moveSequence += "\(moveNumber). \(move.san) "
+                    } else {
+                        moveSequence += "\(move.san) "
+                        moveNumber += 1
+                    }
+                }
+                
+                throw .invalidMove(san: san, fen: position.fen, moveSequence: moveSequence.trimmingCharacters(in: .whitespaces))
+            }
+            
+            let newMoveIndex = game.make(move: move, from: currentMoveIndex)
+            
+            // --- DEBUGGING ASSERTION ---
+            // If a move number was just parsed, the new index's number must match it.
+            if let parsedNumber = lastParsedMoveNumber {
+                if (newMoveIndex.number == parsedNumber) {
+                    lastParsedMoveNumber = nil
+                } else {
+                    throw .unexpectedMoveTextToken
+                }
+                //assert(newMoveIndex.number == parsedNumber, "DEBUG: Move number mismatch! Parsed: \(parsedNumber), Assigned Index: \(newMoveIndex.number) for SAN: '\(san)'. Parent index was \(String(describing: game.moves.dictionary[newMoveIndex]?.previous?.index)).")
+                // Reset after checking to avoid false positives on subsequent moves without explicit numbering.
+            }
+            currentMoveIndex = newMoveIndex
         case let .annotation(annotation):
           if let rawValue = firstMatch(
             in: annotation, for: .numericPosition
@@ -247,15 +317,16 @@ private extension PGNParser.MoveTextParser {
 
     func isValid(character: Character) -> Bool {
       switch self {
-      // .comment is omitted from these checks because
-      // it is handled separately by checking for { } delimiters
-      case .none, .comment: false
-      case .number: Self.isNumber(character)
-      case .san: Self.isSAN(character)
-      case .annotation: Self.isAnnotation(character)
-      case .variationStart: Self.isVariationStart(character)
-      case .variationEnd: Self.isVariationEnd(character)
-      case .result: Self.isResult(character)
+      // .comment is handled by a separate state machine (commentDepth).
+      // .variationStart and .variationEnd are single-character tokens,
+      // so they can't be extended. Returning false forces the tokenizer
+      // to flush the previous token and process them individually.
+      case .none, .comment, .variationStart, .variationEnd:
+          return false
+      case .number: return Self.isNumber(character)
+      case .san: return Self.isSAN(character)
+      case .annotation: return Self.isAnnotation(character)
+      case .result: return Self.isResult(character)
       }
     }
 

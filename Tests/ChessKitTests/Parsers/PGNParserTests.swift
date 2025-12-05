@@ -179,12 +179,24 @@ struct PGNParserTests {
   }
 
   @Test func invalidMoveError() throws {
-    #expect(throws: PGNParser.Error.invalidMove("abc123")) {
-      try PGNParser.parse(game: "1. e4 abc123 2. Nc6")
+    do {
+        try PGNParser.parse(game: "1. e4 abc123 2. Nc6")
+        Issue.record("Expected to throw an error, but did not.")
+    } catch let error as PGNParser.Error {
+        let expectedError = PGNParser.Error.invalidMove(san: "abc123", fen: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1", moveSequence: "1. e4")
+        #expect(error == expectedError, "Thrown error did not match expected error.")
+    } catch {
+        Issue.record("Threw an unexpected error type: \(error)")
     }
 
-    #expect(throws: PGNParser.Error.invalidMove("abc123")) {
-      try PGNParser.parse(game: "abc123 e5 Nc6")
+    do {
+        try PGNParser.parse(game: "abc123 e5 Nc6")
+        Issue.record("Expected to throw an error, but did not.")
+    } catch let error as PGNParser.Error {
+        let expectedError = PGNParser.Error.invalidMove(san: "abc123", fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", moveSequence: "")
+        #expect(error == expectedError, "Thrown error did not match expected error.")
+    } catch {
+        Issue.record("Threw an unexpected error type: \(error)")
     }
   }
 

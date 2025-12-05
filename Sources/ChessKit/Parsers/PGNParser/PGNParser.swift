@@ -187,7 +187,7 @@ extension PGNParser {
     case invalidAnnotation(String)
     /// The move SAN is invalid for the implied position given
     /// by its location within the PGN string.
-    case invalidMove(String)
+    case invalidMove(san: String, fen: String, moveSequence: String)
     /// The first item in a move text string must be either a
     /// number (e.g. `1.`) or a move SAN (e.g. `e4`).
     case unexpectedMoveTextToken
