@@ -94,23 +94,20 @@ public struct Game: Codable, Hashable, Sendable {
       return index
     }
 
-    var newPosition = currentPosition
-
-    switch move.result {
-    case .move:
-      newPosition.move(pieceAt: move.start, to: move.end)
-      if move.piece.kind == .pawn { newPosition.resetHalfmoveClock() }
-    case let .capture(capturedPiece):
-      newPosition.remove(capturedPiece)
-      newPosition.move(pieceAt: move.start, to: move.end)
-      newPosition.resetHalfmoveClock()
-    case let .castle(castling):
-      newPosition.castle(castling)
+    // 1. Create a Board instance from the current position to act as the rules engine.
+    var board = Board(position: currentPosition)
+    
+    // 2. Perform the move using the Board. This applies all rules (castling, captures, en passant, etc.).
+    board.move(pieceAt: move.start, to: move.end)
+    
+    // 3. If the parsed move was a promotion, we need to complete it on the board.
+    if let promotedPiece = move.promotedPiece,
+       case let .promotion(incompleteMove) = board.state {
+       board.completePromotion(of: incompleteMove, to: promotedPiece.kind)
     }
-
-    if let promotedPiece = move.promotedPiece {
-      newPosition.promote(pieceAt: move.end, to: promotedPiece.kind)
-    }
+    
+    // 4. The board's internal position is now the correct new state.
+    let newPosition = board.position
 
     positions[newIndex] = newPosition
     return newIndex

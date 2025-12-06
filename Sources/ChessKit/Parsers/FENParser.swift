@@ -160,7 +160,7 @@ public enum FENParser {
 
     // en passant
 
-    if let enPassant = position.enPassant {
+    if let enPassant = position.enPassant, position.enPassantIsPossible {
       fen += "\(enPassant.captureSquare) "
     } else {
       fen += "- "

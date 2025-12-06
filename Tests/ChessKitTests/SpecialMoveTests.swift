@@ -80,4 +80,33 @@ struct SpecialMoveTests {
     #expect(!whiteEnPassant.couldBeCaptured(by: Piece(.bishop, color: .black, square: .c4)))
   }
 
+    @Test("En Passant Possibility After PGN Parse")
+    func enPassantAfterPGNParse() throws {
+        let pgn = "1. d4 Nf6 2. Nc3 d5 3. Bf4 e6 4. Nb5 Bb4+ 5. c3 Ba5 6. a4 a6 7. b4 axb5 8. axb5 b6 9. bxa5 bxa5 10. e3 O-O 11. Nf3 Nbd7 12. Bd3 Bb7 13. Ne5 Nxe5 14. dxe5 Ne4 15. Qh5 f5"
+        
+        // 1. Parse the game to get the final state.
+        let game = try PGNParser.parse(game: pgn)
+        
+        // 2. Get the index of the last move (15... f5) and its resulting position.
+        let lastMoveIndex = MoveTree.Index(number: 15, color: .black)
+        let finalPosition = try #require(game.positions[lastMoveIndex])
+        
+        // 3. Check that the en passant state is correctly set in the Position object.
+        let enPassantState = try #require(finalPosition.enPassant, "En passant state should not be nil.")
+        #expect(enPassantState.captureSquare == .f6, "The en passant capture square should be f6.")
+        #expect(finalPosition.enPassantIsPossible, "enPassantIsPossible flag should be true.")
+        
+        // 4. Verify that the FEN string correctly reflects the en passant square.
+        #expect(finalPosition.fen.contains(" f6 "), "The generated FEN string must include the 'f6' en passant square.")
+        
+        // 5. Create a board and verify the capture is a legal move.
+        var board = Board(position: finalPosition)
+        #expect(board.canMove(pieceAt: .e5, to: .f6), "The en passant capture 'exf6' should be a legal move.")
+        
+        // 6. Perform the move and confirm it's a capture of the correct pawn.
+        let move = board.move(pieceAt: .e5, to: .f6)
+        let capturedPawn = Piece(.pawn, color: .black, square: .f5)
+        #expect(move?.result == .capture(capturedPawn), "The move should be registered as an en passant capture of the pawn on f5.")
+    }
+
 }
