@@ -151,19 +151,13 @@ extension PGNParser {
       // iterate through remaining tokens
 
       var variationStack = Stack<MoveTree.Index>()
-      var lastParsedMoveNumber: Int?
-      var tokenNumber = 0
 
       while let token = iterator.next() {
         currentToken = token
-        tokenNumber += 1
+
         switch currentToken {
-        case .none, .result:
+        case .none, .result, .number:
           break
-        case let .number(numberString):
-            if let n = Int(numberString.prefix { $0 != "." }) {
-                lastParsedMoveNumber = n
-            }
         case let .san(san):
             guard let position = game.positions[currentMoveIndex] else {
                 // This indicates a critical internal error, as the parser's state is inconsistent.
@@ -189,20 +183,7 @@ extension PGNParser {
                 throw .invalidMove(san: san, fen: position.fen, moveSequence: moveSequence.trimmingCharacters(in: .whitespaces))
             }
             
-            let newMoveIndex = game.make(move: move, from: currentMoveIndex)
-            
-            // --- DEBUGGING ASSERTION ---
-            // If a move number was just parsed, the new index's number must match it.
-            if let parsedNumber = lastParsedMoveNumber {
-                if (newMoveIndex.number == parsedNumber) {
-                    lastParsedMoveNumber = nil
-                } else {
-                    throw .unexpectedMoveTextToken
-                }
-                //assert(newMoveIndex.number == parsedNumber, "DEBUG: Move number mismatch! Parsed: \(parsedNumber), Assigned Index: \(newMoveIndex.number) for SAN: '\(san)'. Parent index was \(String(describing: game.moves.dictionary[newMoveIndex]?.previous?.index)).")
-                // Reset after checking to avoid false positives on subsequent moves without explicit numbering.
-            }
-            currentMoveIndex = newMoveIndex
+            currentMoveIndex = game.make(move: move, from: currentMoveIndex)
         case let .annotation(annotation):
           if let rawValue = firstMatch(
             in: annotation, for: .numericPosition
