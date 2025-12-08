@@ -165,7 +165,7 @@ public enum PGNParser {
 
     /// Recursively merges moves from a source game into a destination game.
     private static func mergeMoves(from sourceGame: Game, into mergedGame: inout Game, sourceParentIndex: MoveTree.Index, mergedParentIndex: MoveTree.Index) {
-        let sourceVariations = variations(on: sourceGame.moves, for: sourceParentIndex)
+        let sourceVariations = sourceGame.moves.variations(for: sourceParentIndex)
 
         for sourceMoveIndex in sourceVariations {
             guard let sourceMove = sourceGame.moves[sourceMoveIndex] else { continue }
@@ -180,13 +180,18 @@ public enum PGNParser {
                 var needsUpdate = false
 
                 // Merge comments
-                if !sourceMove.comment.isEmpty && !existingMove.comment.contains(sourceMove.comment) {
-                    if existingMove.comment.isEmpty {
-                        existingMove.comment = sourceMove.comment
-                    } else {
-                        existingMove.comment += "\n--\n\(sourceMove.comment)"
+                if !sourceMove.comment.isEmpty {
+                    let existingComments = existingMove.comment.components(separatedBy: "\n--\n")
+                    let trimmedSourceComment = sourceMove.comment.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    if !existingComments.contains(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedSourceComment }) {
+                        if existingMove.comment.isEmpty {
+                            existingMove.comment = sourceMove.comment
+                        } else {
+                            existingMove.comment += "\n--\n\(sourceMove.comment)"
+                        }
+                        needsUpdate = true
                     }
-                    needsUpdate = true
                 }
 
                 // Merge annotations
@@ -217,17 +222,6 @@ public enum PGNParser {
             // Recurse down this branch.
             mergeMoves(from: sourceGame, into: &mergedGame, sourceParentIndex: sourceMoveIndex, mergedParentIndex: nextMergedIndex)
         }
-    }
-
-    /// Finds all direct child variations for a given parent index in a move tree.
-    private static func variations(on moveTree: MoveTree, for parentIndex: MoveTree.Index) -> [MoveTree.Index] {
-        // This implementation relies on MoveTree conforming to BidirectionalCollection,
-        // which allows `index(before:)` to find the parent of any move.
-        let children = moveTree.indices.filter { index in
-            guard index != moveTree.startIndex else { return false }
-            return moveTree.index(before: index) == parentIndex
-        }
-        return children.sorted()
     }
 
     /// Generates starting position from `"SetUp"` and `"FEN"` tags.

@@ -83,8 +83,25 @@ public struct Game: Codable, Hashable, Sendable {
     from index: MoveTree.Index
   ) -> MoveTree.Index {
     if let existingMoveIndex = moves.nextIndex(containing: move, for: index) {
-      // if attempted move already exists next in the variation,
-      // skip making it and return the corresponding index
+      // If the move already exists, merge metadata instead of skipping.
+      if let existingMove = moves.dictionary[existingMoveIndex]?.move {
+          // Merge Assessment: Prefer the new move's assessment if it's not .null.
+          let finalAssessment = (move.assessment != .null) ? move.assessment : existingMove.assessment
+          
+          // Merge Comment: If the new comment is non-empty and different, append it.
+          var finalComment = existingMove.comment
+          if !move.comment.isEmpty && move.comment != existingMove.comment {
+              if finalComment.isEmpty {
+                  finalComment = move.comment
+              } else {
+                  // Append with a newline for clarity.
+                  finalComment += "\n\(move.comment)"
+              }
+          }
+          
+          // Update the move in the tree with the merged metadata.
+          moves.annotate(moveAt: existingMoveIndex, assessment: finalAssessment, comment: finalComment)
+      }
       return existingMoveIndex
     }
 

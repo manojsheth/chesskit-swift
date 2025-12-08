@@ -21,6 +21,9 @@ public struct MoveTree: Codable, Hashable, Sendable {
 
   /// Dictionary representation of the tree for faster access.
   private(set) var dictionary: [Index: Node]
+    
+  /// A cache of all leaf node indices for efficient line generation.
+  private(set) var leafNodeIndices: Set<Index> = []
 
   /// The root node of the tree, a dummy node representing the beginning of the game.
   private var rootNode: Node { dictionary[.minimum]! }
@@ -35,10 +38,11 @@ public struct MoveTree: Codable, Hashable, Sendable {
     let dummyNode = Node(move: Self.dummyMove)
     dummyNode.index = .minimum
     self.dictionary = [.minimum: dummyNode]
+    self.leafNodeIndices = []
   }
 
   private enum CodingKeys: String, CodingKey {
-    case minimumIndex, lastMainVariationIndex, dictionary
+    case minimumIndex, lastMainVariationIndex, dictionary, leafNodeIndices
   }
 
   public init(from decoder: Decoder) throws {
@@ -64,6 +68,21 @@ public struct MoveTree: Codable, Hashable, Sendable {
         }
       }
     }
+      
+    // Decode the leaf node cache if available; otherwise, rebuild it.
+    if let leaves = try container.decodeIfPresent(Set<Index>.self, forKey: .leafNodeIndices) {
+        self.leafNodeIndices = leaves
+    } else {
+        // Rebuild the cache for older data formats.
+        var parentIndices: Set<Index> = [.minimum]
+        for node in dictionary.values {
+            if node.next != nil || !node.children.isEmpty {
+                parentIndices.insert(node.index)
+            }
+        }
+        let allIndices = Set(dictionary.keys)
+        self.leafNodeIndices = allIndices.subtracting(parentIndices)
+    }
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -71,6 +90,7 @@ public struct MoveTree: Codable, Hashable, Sendable {
     try container.encode(minimumIndex, forKey: .minimumIndex)
     try container.encode(lastMainVariationIndex, forKey: .lastMainVariationIndex)
     try container.encode(dictionary, forKey: .dictionary)
+    try container.encode(leafNodeIndices, forKey: .leafNodeIndices)
   }
 
   /// A set containing the indices of all the moves stored in the tree.
@@ -130,6 +150,12 @@ public struct MoveTree: Codable, Hashable, Sendable {
     Self.nodeLock.withLock {
       dictionary[newIndex] = newNode
     }
+      
+    // Update leaf node cache: the new node is a leaf, and its parent is not.
+    leafNodeIndices.insert(newIndex)
+    if parentIndex != .minimum {
+        leafNodeIndices.remove(parentIndex)
+    }
 
     if newIndex.variation == Index.mainVariation {
       lastMainVariationIndex = newIndex
@@ -137,6 +163,12 @@ public struct MoveTree: Codable, Hashable, Sendable {
 
     return newIndex
   }
+    
+    /// Returns all complete lines of play by using the cached leaf nodes and tracing their history to the root.
+    public var allLines: [[Index]] {
+        // Sort indices for deterministic output, which aids in testing and consistency.
+        leafNodeIndices.sorted().map { history(for: $0) }
+    }
 
   /// Returns the index matching `move` in the next or child moves of the
   /// move contained at `index`.
@@ -204,6 +236,26 @@ public struct MoveTree: Codable, Hashable, Sendable {
   /// This returns the sum of `history(for:)` and `future(for:)`.
   public func fullVariation(for index: Index) -> [Index] {
     history(for: index) + future(for: index)
+  }
+
+  /// Returns the indices of all immediate child variations for a given parent index.
+  ///
+  /// - parameter parentIndex: The index of the parent move.
+  /// - returns: An array of move indices for all direct variations, sorted.
+  public func variations(for parentIndex: Index) -> [Index] {
+      guard let parentNode = dictionary[parentIndex] else {
+          return []
+      }
+
+      var childIndices: [Index] = []
+
+      if let nextNode = parentNode.next {
+          childIndices.append(nextNode.index)
+      }
+
+      childIndices.append(contentsOf: parentNode.children.map { $0.index })
+
+      return childIndices.sorted()
   }
 
   private func indices(between start: Index, and end: Index) -> [Index] {
@@ -426,7 +478,7 @@ public struct MoveTree: Codable, Hashable, Sendable {
 extension MoveTree: Equatable {
 
   public static func == (lhs: MoveTree, rhs: MoveTree) -> Bool {
-    lhs.dictionary == rhs.dictionary
+    lhs.dictionary == rhs.dictionary && lhs.leafNodeIndices == rhs.leafNodeIndices
   }
 
 }

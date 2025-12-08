@@ -104,6 +104,21 @@ public struct Move: Codable, Hashable, Sendable {
 
 }
 
+// MARK: - Equatable
+extension Move: Equatable {
+    public static func == (lhs: Move, rhs: Move) -> Bool {
+        // Two moves are considered identical if they have the same start and end squares,
+        // the same moving piece, and the same promotion piece (if any).
+        // Metadata like comments and assessments are ignored for equality checks,
+        // preventing duplicate variations in the move tree.
+        lhs.start == rhs.start &&
+        lhs.end == rhs.end &&
+        lhs.piece == rhs.piece &&
+        lhs.promotedPiece == rhs.promotedPiece
+    }
+}
+
+
 // MARK: - Assessment
 extension Move {
 
