@@ -461,13 +461,37 @@ public struct MoveTree: Codable, Hashable, Sendable {
   /// Returns the ``MoveTree`` as an array of PGN
   /// (Portable Game Format) elements.
   public var pgnRepresentation: [PGNElement] {
+    // 1. Get the PGN for the main line starting from the first move.
     var result = pgn(for: rootNode.next)
 
-    rootNode.children.forEach { child in
-      result.append(.variationStart)
-      result.append(contentsOf: pgn(for: child))
-      result.append(.variationEnd)
+    // Early exit if there are no variations on the first move.
+    guard !rootNode.children.isEmpty else {
+        return result
     }
+
+    // 2. Find the insertion point. It's after the first move and its assessment.
+    var insertionIndex: Int
+    if let firstMoveIndex = result.firstIndex(where: { if case .move = $0 { return true }; return false }) {
+        insertionIndex = firstMoveIndex + 1
+        // Check for a position assessment immediately following the move.
+        if insertionIndex < result.count, case .positionAssessment = result[insertionIndex] {
+            insertionIndex += 1
+        }
+    } else {
+        // If there's no first move (empty game), the insertion index is just the end.
+        insertionIndex = result.endIndex
+    }
+
+    // 3. Generate the PGN for the variations on the first move.
+    var rootVariations: [PGNElement] = []
+    rootNode.children.forEach { child in
+      rootVariations.append(.variationStart)
+      rootVariations.append(contentsOf: pgn(for: child))
+      rootVariations.append(.variationEnd)
+    }
+
+    // 4. Insert the variations at the correct spot.
+    result.insert(contentsOf: rootVariations, at: insertionIndex)
 
     return result
   }
