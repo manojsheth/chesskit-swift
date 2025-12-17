@@ -213,6 +213,36 @@ public struct Game: Codable, Hashable, Sendable {
     positions[index]?.assessment = assessment
   }
 
+      /// Removes a move and its entire subsequent variation from the game.
+      ///
+      /// - parameter index: The index of the move to remove. The entire subtree
+      /// rooted at this move will be pruned.
+      public mutating func removeVariation(at index: MoveTree.Index) {
+          // First, verify the node exists to avoid any issues.
+          guard moves.dictionary[index] != nil else { return }
+
+          // We need to collect all indices in the subtree to remove them
+          // from the `positions` dictionary and maintain consistency.
+          var indicesToRemove: [MoveTree.Index] = []
+          var queue = [index]
+
+          while !queue.isEmpty {
+              let currentIndex = queue.removeFirst()
+              indicesToRemove.append(currentIndex)
+              
+              let children = moves.variations(for: currentIndex)
+              queue.append(contentsOf: children)
+          }
+
+          // Remove all positions associated with the deleted variation.
+          for i in indicesToRemove {
+              positions.removeValue(forKey: i)
+          }
+
+          // Finally, remove the node (and its subtree) from the move tree.
+          moves.remove(nodeAt: index)
+      }
+
   /// The PGN represenation of the game.
   public var pgn: String {
     PGNParser.convert(game: self)

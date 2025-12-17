@@ -164,6 +164,77 @@ public struct MoveTree: Codable, Hashable, Sendable {
     return newIndex
   }
     
+    /// Removes a node and its entire subsequent variation from the tree.
+    ///
+    /// - Note: Removing a node will also remove its entire line of subsequent
+    ///   moves (`.next`) and all alternative variations (`.children`).
+    ///
+    /// - parameter index: The index of the node to remove.
+    public mutating func remove(nodeAt index: Index) {
+        // Guard against removing the root or a non-existent node.
+        guard let nodeToRemove = dictionary[index], index != .minimum else {
+            return
+        }
+
+        // A node must have a parent unless it's the root, which is handled by the guard above.
+        guard let parent = nodeToRemove.previous else {
+            // This implies an inconsistent tree state.
+            return
+        }
+
+        // 1. Collect all descendant nodes to be removed using a breadth-first search.
+        var indicesToRemove = Set<Index>()
+        var queue = [nodeToRemove]
+
+        while !queue.isEmpty {
+            let currentNode = queue.removeFirst()
+            indicesToRemove.insert(currentNode.index)
+
+            if let nextNode = currentNode.next {
+                queue.append(nextNode)
+            }
+            queue.append(contentsOf: currentNode.children)
+        }
+
+        Self.nodeLock.withLock {
+            // 2. Update the parent's links.
+            if parent.next === nodeToRemove {
+                // The removed node was the main continuation. Promote a child if possible.
+                if let firstChild = parent.children.first {
+                    parent.next = firstChild
+                    parent.children.removeFirst()
+                } else {
+                    // No children to promote, so the parent's main line ends here.
+                    parent.next = nil
+                }
+            } else {
+                // The removed node was a side variation. Remove it from the children array.
+                parent.children.removeAll { $0 === nodeToRemove }
+            }
+
+            // 3. Remove all collected nodes from the dictionary.
+            indicesToRemove.forEach { dictionary.removeValue(forKey: $0) }
+        }
+
+        // 4. Update the leaf node cache.
+        leafNodeIndices.subtract(indicesToRemove)
+
+        // The parent might have become a new leaf node if it has no more children.
+        if parent.index != .minimum && parent.next == nil && parent.children.isEmpty {
+            leafNodeIndices.insert(parent.index)
+        }
+
+        // 5. Recalculate the last main variation index, as it could have been part of the removed branch.
+        // This is the most robust way to ensure correctness after any removal.
+        var newLastMainIndex = minimumIndex
+        var currentNode = rootNode.next
+        while let node = currentNode {
+            newLastMainIndex = node.index
+            currentNode = node.next
+        }
+        self.lastMainVariationIndex = newLastMainIndex
+    }
+    
     /// Returns all complete lines of play by using the cached leaf nodes and tracing their history to the root.
     public var allLines: [[Index]] {
         // Sort indices for deterministic output, which aids in testing and consistency.
