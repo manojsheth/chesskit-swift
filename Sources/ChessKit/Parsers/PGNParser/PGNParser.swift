@@ -14,7 +14,7 @@ public enum PGNParser {
     /// Parses a PGN string and returns a game.
     ///
     /// - parameter pgn: The PGN string of a chess game. This can be a single game or multiple games concatenated in the same string.
-    /// - returns: A Swift representation of the chess game. If multiple games are provided, they will be merged into a single `Game` object.
+    /// - returns: A tuple containing the primary `mergedGame` and an array of any `unmergedGames`.
     /// - throws: ``Error`` indicating the first error encountered while parsing `pgn`.
     ///
     /// The parsing implementation is based on the [PGN Standard](https://www.saremba.de/chessgml/standards/pgn/pgn-complete.htm)'s
@@ -25,42 +25,109 @@ public enum PGNParser {
     /// starting position is assumed.
     ///
     /// If the `pgn` string contains multiple concatenated games, this function will parse all of them and merge them into a single `Game`.
-    /// The tags of the first game are used. An error is thrown if subsequent games have a different starting position (FEN).
-    public static func parse(game pgn: String) throws -> Game {
+    /// The tags of the first game are used. If a subsequent game starts from a different position (FEN), the parser will attempt
+    /// to find that position within the moves of the main game and attach the subsequent game as a variation. If a position cannot
+    /// be found, the game is deferred.
+    ///
+    /// After attempting to merge all games into the first game, any remaining unmerged games will be consolidated amongst themselves
+    /// and returned in the `unmergedGames` array.
+    public static func parse(game pgn: String) throws -> (mergedGame: Game, unmergedGames: [Game]) {
         let games = try parseIndividualGames(from: pgn)
 
         guard let firstGame = games.first else {
-            return Game()
+            return (mergedGame: Game(), unmergedGames: [])
         }
 
         if games.count == 1 {
-            return firstGame
+            return (mergedGame: firstGame, unmergedGames: [])
         }
 
         var mergedGame = firstGame
+        var gamesToMerge = Array(games.dropFirst())
+        var unmergedCountInPreviousPass = -1
 
-        for gameToMerge in games.dropFirst() {
-            try merge(source: gameToMerge, into: &mergedGame)
+        while !gamesToMerge.isEmpty {
+            if gamesToMerge.count == unmergedCountInPreviousPass {
+                // No merges were successful in a full pass.
+                // Consolidate the remaining games amongst themselves and return.
+                let finalUnmergedGames = try consolidate(games: gamesToMerge)
+                return (mergedGame: mergedGame, unmergedGames: finalUnmergedGames)
+            }
+            unmergedCountInPreviousPass = gamesToMerge.count
+
+            var stillUnmerged: [Game] = []
+            for gameToMerge in gamesToMerge {
+                do {
+                    try merge(source: gameToMerge, into: &mergedGame)
+                } catch Error.mergePointNotFound {
+                    stillUnmerged.append(gameToMerge)
+                }
+            }
+            gamesToMerge = stillUnmerged
         }
 
-        return mergedGame
+        return (mergedGame: mergedGame, unmergedGames: [])
     }
 
     /// Merges a source game's moves into a destination game.
     /// - Parameters:
     ///   - source: The `Game` containing the moves to merge.
     ///   - destination: The `Game` to merge the moves into. This game will be modified.
-    /// - Throws: An error if the games do not share the same starting position.
+    /// - Throws: An error if the games do not share the same starting position, or if a merge point cannot be found for different starting positions.
     public static func merge(source: Game, into destination: inout Game) throws {
-        guard source.startingPosition == destination.startingPosition else {
-            throw Error.mismatchedStartingPosition
+        guard let sourceStartingPosition = source.startingPosition,
+              let destinationStartingPosition = destination.startingPosition else {
+            // A game must have a starting position to be merged.
+            return
         }
 
+        // Case 1: The source game starts from the same board state as the destination game.
+        if sourceStartingPosition.hasSameBoardState(as: destinationStartingPosition) {
+            // Merge root comment
+            if let sourceRootComment = source.moves.dictionary[source.startingIndex]?.move.comment, !sourceRootComment.isEmpty {
+                if let destRootMove = destination.moves.dictionary[destination.startingIndex]?.move {
+                    let existingComment = destRootMove.comment
+                    let newComment = existingComment.isEmpty ? sourceRootComment : "\(existingComment)\n--\n\(sourceRootComment)"
+                    destination.annotate(moveAt: destination.startingIndex, comment: newComment)
+                }
+            }
+            // Merge moves from the root.
+            mergeMoves(
+                from: source,
+                into: &destination,
+                sourceParentIndex: source.startingIndex,
+                mergedParentIndex: destination.startingIndex
+            )
+            return
+        }
+
+        // Case 2: Source game starts from a position found within the destination game.
+        // Search for a matching position in the destination game.
+        let mergePoint = destination.positions.first { (_, position) in
+            position.hasSameBoardState(as: sourceStartingPosition)
+        }
+
+        guard let (mergeIndex, _) = mergePoint else {
+            // No merge point found. Throw error so it can be re-queued.
+            throw Error.mergePointNotFound
+        }
+
+        // A merge point was found. Now merge comments and moves.
+        // 1. Merge source's root comment into the move leading to the merge point.
+        if let sourceRootComment = source.moves.dictionary[source.startingIndex]?.move.comment, !sourceRootComment.isEmpty {
+            if let destinationMove = destination.moves[mergeIndex] {
+                let existingComment = destinationMove.comment
+                let newComment = existingComment.isEmpty ? sourceRootComment : "\(existingComment)\n--\n\(sourceRootComment)"
+                destination.annotate(moveAt: mergeIndex, assessment: destinationMove.assessment, comment: newComment)
+            }
+        }
+
+        // 2. Merge moves recursively, starting from the merge point.
         mergeMoves(
             from: source,
             into: &destination,
-            sourceParentIndex: source.moves.startIndex,
-            mergedParentIndex: destination.moves.startIndex
+            sourceParentIndex: source.startingIndex,
+            mergedParentIndex: mergeIndex
         )
     }
 
@@ -117,48 +184,127 @@ public enum PGNParser {
 
     // MARK: Private
 
-    /// Parses a string that may contain multiple PGNs and returns an array of `Game` objects.
-    private static func parseIndividualGames(from pgn: String) throws -> [Game] {
-        let sections = pgn.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { $0.prefix(1) != "%" }
-            .split(separator: "", omittingEmptySubsequences: true)
-            .map(Array.init)
+    /// Consolidates a list of games by merging them into each other where possible.
+    private static func consolidate(games: [Game]) throws -> [Game] {
+        guard !games.isEmpty else { return [] }
 
-        var games: [Game] = []
-        var currentSectionIndex = 0
+        var remainingGames = games
+        var consolidatedGames: [Game] = []
 
-        while currentSectionIndex < sections.count {
-            let firstSection = sections[currentSectionIndex]
+        while !remainingGames.isEmpty {
+            var baseGame = remainingGames.removeFirst()
+            var gamesToTryMerging = remainingGames
+            var unmergedThisRound: [Game] = []
+            var wasMergeSuccessfulInPass = true
 
-            let tagPairLines: [String]
-            let moveTextLines: [String]
+            // Keep merging into baseGame until a full pass results in no merges.
+            while wasMergeSuccessfulInPass {
+                wasMergeSuccessfulInPass = false
+                unmergedThisRound = []
 
-            // Check if the current section is a tag block.
-            if firstSection.first?.hasPrefix("[") ?? false {
-                tagPairLines = firstSection
-                currentSectionIndex += 1
-                if currentSectionIndex < sections.count {
-                    moveTextLines = sections[currentSectionIndex]
-                    currentSectionIndex += 1
-                } else {
-                    moveTextLines = [] // Tags without movetext.
+                for gameToMerge in gamesToTryMerging {
+                    do {
+                        try merge(source: gameToMerge, into: &baseGame)
+                        wasMergeSuccessfulInPass = true // A merge happened!
+                    } catch Error.mergePointNotFound {
+                        unmergedThisRound.append(gameToMerge)
+                    }
                 }
-            } else {
-                // No tag block, this section must be movetext.
-                tagPairLines = []
-                moveTextLines = firstSection
-                currentSectionIndex += 1
+                gamesToTryMerging = unmergedThisRound
             }
 
-            let tags = try PGNTagParser.gameTags(from: tagPairLines.joined())
+            consolidatedGames.append(baseGame)
+            remainingGames = gamesToTryMerging
+        }
+
+        return consolidatedGames
+    }
+
+    /// Parses a string that may contain multiple PGNs and returns an array of `Game` objects.
+    private static func parseIndividualGames(from pgn: String) throws -> [Game] {
+        let lines = pgn.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.starts(with: "%") }
+
+        var games: [Game] = []
+        var pendingComment: String?
+
+        var tagPairLines: [String] = []
+        var moveTextLines: [String] = []
+
+        // Helper to process the collected lines into a game object.
+        func processCurrentGame() throws {
+            // Do nothing if no lines have been collected.
+            if tagPairLines.isEmpty && moveTextLines.isEmpty {
+                return
+            }
+
+            let tags = try PGNTagParser.gameTags(from: tagPairLines.joined(separator: "\n"))
             var game = try MoveTextParser.game(
                 from: moveTextLines.joined(separator: " "),
                 startingPosition: try startingPosition(from: tags)
             )
             game.tags = tags
-            games.append(game)
+
+            if game.moves.isEmpty {
+                // This is an empty game (e.g., just tags, or movetext is just "*").
+                // If it has a root comment, we'll carry it over.
+                let startingComment = game.moves.dictionary[game.startingIndex]?.move.comment ?? ""
+                if !startingComment.isEmpty {
+                    if let existingComment = pendingComment {
+                        pendingComment = "\(existingComment)\n--\n\(startingComment)"
+                    } else {
+                        pendingComment = startingComment
+                    }
+                }
+            } else {
+                // This is a valid game with moves.
+                if let commentToApply = pendingComment {
+                    let existingComment = game.moves.dictionary[game.startingIndex]?.move.comment ?? ""
+
+                    let newComment = existingComment.isEmpty
+                        ? commentToApply
+                        : "\(commentToApply)\n--\n\(existingComment)"
+
+                    game.annotate(moveAt: game.startingIndex, comment: newComment)
+                    pendingComment = nil
+                }
+                games.append(game)
+            }
+            
+            // Reset for the next game.
+            tagPairLines.removeAll()
+            moveTextLines.removeAll()
         }
+
+        var isParsingMoveText = false
+
+        for line in lines {
+            if line.starts(with: "[") {
+                if isParsingMoveText {
+                    // We've hit a new game's tags, so process the previous one.
+                    try processCurrentGame()
+                    isParsingMoveText = false
+                }
+                tagPairLines.append(line)
+            } else if !line.isEmpty {
+                // It's a movetext line.
+                isParsingMoveText = true
+                moveTextLines.append(line)
+            } else { // line is empty
+                // An empty line after tags and before movetext is the separator.
+                if !tagPairLines.isEmpty && moveTextLines.isEmpty {
+                    isParsingMoveText = true
+                } 
+                // If we are already parsing movetext, an empty line is considered part of it
+                // to handle cases like comments separated by blank lines.
+                else if isParsingMoveText {
+                    moveTextLines.append(line)
+                }
+            }
+        }
+
+        try processCurrentGame() // Process the last game in the PGN.
 
         return games
     }
@@ -270,6 +416,7 @@ extension PGNParser {
         case tooManyLineBreaks
         /// The starting positions of multiple PGNs being merged
         /// do not match based on their FEN tags.
+        @available(*, deprecated, message: "This error is no longer thrown. Use mergePointNotFound or unmergableGames instead.")
         case mismatchedStartingPosition
         /// If included in the PGN's tag pairs, the `SetUp` tag must
         /// be set to either `"0"` or `"1"`.
@@ -280,12 +427,15 @@ extension PGNParser {
         ///
         /// - seealso: ``FENParser``
         case invalidSetUpOrFEN
+        /// A merge point could not be found for a sub-game in a multi-game PGN.
+        /// This is used internally to re-queue games for merging.
+        case mergePointNotFound
 
         // MARK: Tags
         /// Tags must be surrounded by brackets with an unquoted
         /// string (key) followed by a quoted string (value) inside.
         ///
-        /// For example: `[Round "29"]`
+        ///for example: `[Round "29"]`
         case invalidTagFormat
         /// Tags must have an open bracket (`[`) and a close bracket (`]`).
         /// If there is a close bracket without an open, this error

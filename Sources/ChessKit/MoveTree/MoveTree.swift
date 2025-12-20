@@ -14,10 +14,10 @@ public struct MoveTree: Codable, Hashable, Sendable {
   /// The index of the root of the move tree.
   ///
   /// Defaults to `MoveTree.Index.minimum`.
-  var minimumIndex: Index = .minimum
+  var minimumIndex: Index
 
   /// The last index of the main variation of the move tree.
-  private(set) var lastMainVariationIndex: Index = .minimum
+  private(set) var lastMainVariationIndex: Index
 
   /// Dictionary representation of the tree for faster access.
   private(set) var dictionary: [Index: Node]
@@ -26,7 +26,7 @@ public struct MoveTree: Codable, Hashable, Sendable {
   private(set) var leafNodeIndices: Set<Index> = []
 
   /// The root node of the tree, a dummy node representing the beginning of the game.
-  private var rootNode: Node { dictionary[.minimum]! }
+  private var rootNode: Node { dictionary[minimumIndex]! }
 
   /// A dummy move to associate with the `rootNode`.
   private static var dummyMove: Move {
@@ -34,10 +34,13 @@ public struct MoveTree: Codable, Hashable, Sendable {
     return Move(result: .move, piece: dummyPiece, start: .a1, end: .a1)
   }
 
-  public init() {
+  public init(startingAt index: Index = .minimum) {
+    self.minimumIndex = index
+    self.lastMainVariationIndex = index
+
     let dummyNode = Node(move: Self.dummyMove)
-    dummyNode.index = .minimum
-    self.dictionary = [.minimum: dummyNode]
+    dummyNode.index = index
+    self.dictionary = [index: dummyNode]
     self.leafNodeIndices = []
   }
 
@@ -48,13 +51,13 @@ public struct MoveTree: Codable, Hashable, Sendable {
   public init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     self.minimumIndex = try container.decodeIfPresent(Index.self, forKey: .minimumIndex) ?? .minimum
-    self.lastMainVariationIndex = try container.decodeIfPresent(Index.self, forKey: .lastMainVariationIndex) ?? .minimum
+    self.lastMainVariationIndex = try container.decodeIfPresent(Index.self, forKey: .lastMainVariationIndex) ?? self.minimumIndex
     self.dictionary = try container.decode([Index: Node].self, forKey: .dictionary)
 
-    if self.dictionary[.minimum] == nil {
+    if self.dictionary[minimumIndex] == nil {
       let dummyNode = Node(move: Self.dummyMove)
-      dummyNode.index = .minimum
-      self.dictionary[.minimum] = dummyNode
+      dummyNode.index = minimumIndex
+      self.dictionary[minimumIndex] = dummyNode
 
       let oldRoots = dictionary.values.filter { $0.previous == nil }
 
@@ -74,7 +77,7 @@ public struct MoveTree: Codable, Hashable, Sendable {
         self.leafNodeIndices = leaves
     } else {
         // Rebuild the cache for older data formats.
-        var parentIndices: Set<Index> = [.minimum]
+        var parentIndices: Set<Index> = [minimumIndex]
         for node in dictionary.values {
             if node.next != nil || !node.children.isEmpty {
                 parentIndices.insert(node.index)
@@ -117,7 +120,7 @@ public struct MoveTree: Codable, Hashable, Sendable {
     toParentIndex moveIndex: Index? = nil
   ) -> Index {
     let newNode = Node(move: move)
-    let parentIndex = moveIndex ?? .minimum
+    let parentIndex = moveIndex ?? minimumIndex
     guard let parent = dictionary[parentIndex] else {
         // This case should ideally not happen if the caller provides valid indices.
         // A fatal error is appropriate here because the tree is in an inconsistent state.
@@ -153,7 +156,7 @@ public struct MoveTree: Codable, Hashable, Sendable {
       
     // Update leaf node cache: the new node is a leaf, and its parent is not.
     leafNodeIndices.insert(newIndex)
-    if parentIndex != .minimum {
+    if parentIndex != minimumIndex {
         leafNodeIndices.remove(parentIndex)
     }
 
@@ -172,7 +175,7 @@ public struct MoveTree: Codable, Hashable, Sendable {
     /// - parameter index: The index of the node to remove.
     public mutating func remove(nodeAt index: Index) {
         // Guard against removing the root or a non-existent node.
-        guard let nodeToRemove = dictionary[index], index != .minimum else {
+        guard let nodeToRemove = dictionary[index], index != minimumIndex else {
             return
         }
 
@@ -220,7 +223,7 @@ public struct MoveTree: Codable, Hashable, Sendable {
         leafNodeIndices.subtract(indicesToRemove)
 
         // The parent might have become a new leaf node if it has no more children.
-        if parent.index != .minimum && parent.next == nil && parent.children.isEmpty {
+        if parent.index != minimumIndex && parent.next == nil && parent.children.isEmpty {
             leafNodeIndices.insert(parent.index)
         }
 
@@ -266,12 +269,12 @@ public struct MoveTree: Codable, Hashable, Sendable {
   /// from the starting move until the move defined by `index`, accounting
   /// for any branching variations in between.
   public func history(for index: Index) -> [Index] {
-    guard let startNode = dictionary[index], index != .minimum else { return [] }
+    guard let startNode = dictionary[index], index != minimumIndex else { return [] }
 
     var currentNode: Node? = startNode
     var history: [Index] = []
 
-    while let node = currentNode, node.index != .minimum {
+    while let node = currentNode, node.index != minimumIndex {
       history.append(node.index)
       currentNode = node.previous
     }
@@ -366,10 +369,10 @@ public struct MoveTree: Codable, Hashable, Sendable {
   ) -> [(direction: PathDirection, index: Index)] {
     if startIndex == endIndex { return [] }
 
-    if startIndex == .minimum {
+    if startIndex == minimumIndex {
       return history(for: endIndex).map { (.forward, $0) }
     }
-    if endIndex == .minimum {
+    if endIndex == minimumIndex {
       return history(for: startIndex).reversed().map { (.reverse, $0) }
     }
 
@@ -589,7 +592,7 @@ extension MoveTree {
     /// The position assessment for this node.
     var positionAssessment = Position.Assessment.null
     /// The index for this node.
-    fileprivate(set) var index = Index.minimum
+    fileprivate(set) var index: Index
     /// The previous node.
     fileprivate(set) var previous: Node?
     /// The next node.
@@ -599,6 +602,7 @@ extension MoveTree {
 
     fileprivate init(move: Move) {
       self.move = move
+      self.index = .minimum // Default value
     }
 
     // MARK: Equatable

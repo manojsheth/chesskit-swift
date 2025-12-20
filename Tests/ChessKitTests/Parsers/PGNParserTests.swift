@@ -85,6 +85,58 @@ struct PGNParserTests {
 
   // MARK: MoveText
 
+  @Test func leadingCommentParsing() throws {
+      let pgn = "{This is a comment before any moves.} 1. e4 e5"
+      let game = try PGNParser.parse(game: pgn)
+
+      #expect(game.moves.dictionary[.minimum]?.move.comment == "This is a comment before any moves.")
+      #expect(game.moves[.init(number: 1, color: .white)]?.san == "e4")
+      #expect(game.moves[.init(number: 1, color: .black)]?.san == "e5")
+  }
+
+  @Test func onlyCommentParsing() throws {
+      let pgn = "{This is just a comment.}"
+      let game = try PGNParser.parse(game: pgn)
+      #expect(game.moves.dictionary[.minimum]?.move.comment == "This is just a comment.")
+      #expect(game.moves.isEmpty)
+  }
+
+  @Test func multiGameParsingWithEmptyGameAndCommentCarryOver() throws {
+      let pgn = """
+      [Event "Game 1"]
+      
+      1. e4 e5 *
+
+      [Event "Game 2"]
+      {This comment is from an empty game.}
+      *
+
+      [Event "Game 3"]
+      {This game has its own comment.}
+      1. d4 d5 *
+      """
+      
+      let game = try PGNParser.parse(game: pgn)
+      
+      // The final merged game should have tags from the first game.
+      #expect(game.tags.event == "Game 1")
+      
+      // It should contain moves from both non-empty games.
+      // Game 1's moves form the main line.
+      #expect(game.moves[.init(number: 1, color: .white)]?.san == "e4")
+      #expect(game.moves[.init(number: 1, color: .black)]?.san == "e5")
+      
+      // Game 3's moves form a variation.
+      #expect(game.moves[.init(number: 1, color: .white, variation: 1)]?.san == "d4")
+      #expect(game.moves[.init(number: 1, color: .black, variation: 1)]?.san == "d5")
+
+      // The comments from the empty game and the third game should be merged
+      // and attached to the root of the move tree.
+      let expectedComment = "This comment is from an empty game.\n--\nThis game has its own comment."
+      let rootComment = game.moves.dictionary[.minimum]?.move.comment
+      #expect(rootComment == expectedComment)
+  }
+
   @Test func moveTextParsing() throws {
     let game = try PGNParser.parse(game: Game.fischerSpassky)
 

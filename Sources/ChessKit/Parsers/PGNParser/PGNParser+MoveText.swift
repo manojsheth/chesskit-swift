@@ -91,6 +91,14 @@ extension PGNParser {
                 continue
             }
             
+            // Handle token type promotion for ambiguous cases.
+            if currentTokenType == .number && (c == "-" || c == "/") {
+                // We started tokenizing what we thought was a move number (e.g., "1"),
+                // but the next character indicates it's actually a result (e.g., "1-0" or "1/2-1/2").
+                // Promote the token type to .result and continue with the new type.
+                currentTokenType = .result
+            }
+            
             // Handle token accumulation for all other types.
             if currentTokenType.isValid(character: c) {
                 currentToken += String(c)
@@ -127,6 +135,13 @@ extension PGNParser {
       var iterator = tokens.makeIterator()
 
       var currentToken = iterator.next()
+      
+      // Handle a comment at the beginning of the movetext.
+      if case let .comment(comment) = currentToken {
+        game.annotate(moveAt: .minimum, comment: comment)
+        currentToken = iterator.next()
+      }
+      
       var currentMoveIndex: MoveTree.Index
 
       // determine if first move is white or black
@@ -144,6 +159,13 @@ extension PGNParser {
             currentMoveIndex = game.make(move: move, from: currentMoveIndex)
           }
         }
+      } else if case .result(_) = currentToken {
+          // The movetext may only contain a result.
+          return game
+      } else if currentToken == nil {
+          // It's possible for a PGN to have only tags and a starting comment,
+          // or no movetext at all. In this case, we can just return the game.
+          return game
       } else {
         throw .unexpectedMoveTextToken
       }

@@ -51,17 +51,23 @@ final class GameTests {
 
   @Test func startingPosition() {
     let game1 = Game(startingWith: .standard)
-    #expect(game1.startingIndex == .init(number: 0, color: .black, variation: 0))
+    #expect(game1.startingIndex == .minimum)
     #expect(game1.startingPosition == .standard)
+    #expect(game1.moves.minimumIndex == .minimum)
 
     let fen = "r1bqkb1r/pp1ppppp/2n2n2/8/2B1P3/2N2N2/PP3PPP/R1BQK2R b KQkq - 4 6"
-    var game2 = Game(startingWith: .init(fen: fen)!)
-    #expect(game2.startingIndex == .init(number: 1, color: .white, variation: 0))
-    #expect(game2.startingPosition == .init(fen: fen)!)
+    let blackToMovePosition = Position(fen: fen)!
+    var game2 = Game(startingWith: blackToMovePosition)
 
-    game2.make(move: "O-O", from: game2.startingIndex)
-    #expect(game2.moves.index(after: game2.moves.minimumIndex) == .init(number: 1, color: .black, variation: 0))
-    #expect(game2.moves[.init(number: 1, color: .black, variation: 0)] == .init(san: "O-O", position: .init(fen: fen)!))
+    let expectedStartingIndex = MoveTree.Index.minimum.next
+    #expect(game2.startingIndex == expectedStartingIndex)
+    #expect(game2.moves.minimumIndex == expectedStartingIndex)
+    #expect(game2.startingPosition == blackToMovePosition)
+
+    let moveIndex = game2.make(move: "O-O", from: game2.startingIndex)
+    let expectedMoveIndex = expectedStartingIndex.next
+    #expect(moveIndex == expectedMoveIndex)
+    #expect(game2.moves[expectedMoveIndex] == Move(san: "O-O", position: blackToMovePosition))
   }
 
   @Test func validMoves() {
