@@ -30,9 +30,9 @@ extension PGNParser {
   ///     Defaults to the standard position.
   /// - returns: A Swift representation of the chess game.
   ///
-  @available(*, deprecated, renamed: "parse(game:)")
+  @available(*, deprecated, renamed: "parse(pgn:)")
   public static func parse(
-    game pgn: String,
+    gameString pgn: String,
     startingWith position: Position = .standard
   ) -> Game {
     let processedPGN =
@@ -182,7 +182,14 @@ extension PGNParser {
       )
     }
 
-    var game = Game(startingWith: position, tags: parsedTags)
+    // Determine the starting position.
+    // The FEN tag takes precedence if SetUp is "1".
+    var finalStartingPosition = position
+    if parsedTags.setUp == "1", let fenPosition = FENParser.parse(fen: parsedTags.fen) {
+        finalStartingPosition = fenPosition
+    }
+
+    var game = Game(startingWith: finalStartingPosition, tags: parsedTags)
 
     parsedMoves.forEach { move in
       let whiteIndex = MoveTree.Index(number: move.number, color: .white).previous

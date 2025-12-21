@@ -11,28 +11,19 @@ public enum PGNParser {
 
     // MARK: Public
 
-    /// Parses a PGN string and returns a game.
+    /// Parses a PGN string that may contain multiple games, merging them where possible.
     ///
     /// - parameter pgn: The PGN string of a chess game. This can be a single game or multiple games concatenated in the same string.
     /// - returns: A tuple containing the primary `mergedGame` and an array of any `unmergedGames`.
     /// - throws: ``Error`` indicating the first error encountered while parsing `pgn`.
     ///
-    /// The parsing implementation is based on the [PGN Standard](https://www.saremba.de/chessgml/standards/pgn/pgn-complete.htm)'s
-    /// import format.
-    ///
-    /// The starting position is read from the `FEN` tag if
-    /// the `SetUp` tag is set to `1`. Otherwise the standard
-    /// starting position is assumed.
-    ///
-    /// If the `pgn` string contains multiple concatenated games, this function will parse all of them and merge them into a single `Game`.
-    /// The tags of the first game are used. If a subsequent game starts from a different position (FEN), the parser will attempt
-    /// to find that position within the moves of the main game and attach the subsequent game as a variation. If a position cannot
-    /// be found, the game is deferred.
+    /// This function is suitable for parsing PGN data from external sources that may contain multiple games. It will parse all of them
+    /// and merge them into a single `Game` object where possible. The tags of the first game are used.
     ///
     /// After attempting to merge all games into the first game, any remaining unmerged games will be consolidated amongst themselves
     /// and returned in the `unmergedGames` array.
-    public static func parse(game pgn: String) throws -> (mergedGame: Game, unmergedGames: [Game]) {
-        let games = try parseIndividualGames(from: pgn)
+    public static func parsePotentialMultipleGames(pgn: String) throws -> (mergedGame: Game, unmergedGames: [Game]) {
+        let games = try parseIntoGames(from: pgn)
 
         guard let firstGame = games.first else {
             return (mergedGame: Game(), unmergedGames: [])
@@ -67,6 +58,24 @@ public enum PGNParser {
         }
 
         return (mergedGame: mergedGame, unmergedGames: [])
+    }
+
+    /// Parses a PGN string that is expected to contain a single game.
+    ///
+    /// - parameter pgn: The PGN string of a single chess game.
+    /// - returns: A Swift representation of the chess game.
+    /// - throws: ``Error`` if parsing fails or if the `pgn` string contains more than one game.
+    ///
+    /// This function should be used when you are certain the PGN source contains exactly one game,
+    /// for example, when reading from a file that your app has previously saved.
+    public static func parse(pgn: String) throws -> Game {
+        let games = try parseIntoGames(from: pgn)
+
+        guard games.count <= 1 else {
+            throw Error.multipleGamesInSingleGameParser
+        }
+
+        return games.first ?? Game()
     }
 
     /// Merges a source game's moves into a destination game.
@@ -221,7 +230,7 @@ public enum PGNParser {
     }
 
     /// Parses a string that may contain multiple PGNs and returns an array of `Game` objects.
-    private static func parseIndividualGames(from pgn: String) throws -> [Game] {
+    private static func parseIntoGames(from pgn: String) throws -> [Game] {
         let lines = pgn.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.starts(with: "%") }
@@ -416,7 +425,7 @@ extension PGNParser {
         case tooManyLineBreaks
         /// The starting positions of multiple PGNs being merged
         /// do not match based on their FEN tags.
-        @available(*, deprecated, message: "This error is no longer thrown. Use mergePointNotFound or unmergableGames instead.")
+        @available(*, deprecated, message: "This error is no longer thrown. Use mergePointNotFound instead.")
         case mismatchedStartingPosition
         /// If included in the PGN's tag pairs, the `SetUp` tag must
         /// be set to either `"0"` or `"1"`.
@@ -430,6 +439,8 @@ extension PGNParser {
         /// A merge point could not be found for a sub-game in a multi-game PGN.
         /// This is used internally to re-queue games for merging.
         case mergePointNotFound
+        /// The PGN string was expected to contain a single game, but multiple were found.
+        case multipleGamesInSingleGameParser
 
         // MARK: Tags
         /// Tags must be surrounded by brackets with an unquoted

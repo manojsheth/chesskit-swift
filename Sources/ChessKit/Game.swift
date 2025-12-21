@@ -51,8 +51,8 @@ public struct Game: Codable, Hashable, Sendable {
   /// - parameter pgn: A string containing a PGN representation of
   /// a game.
   public init(pgn: String) throws {
-    let parsed = try PGNParser.parse(game: pgn)
-    self = parsed.mergedGame
+    let parsed = try PGNParser.parse(pgn: pgn)
+    self = parsed
   }
 
   // MARK: Moves
