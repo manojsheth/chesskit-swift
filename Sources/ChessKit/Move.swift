@@ -102,6 +102,13 @@ public struct Move: Codable, Hashable, Sendable {
     EngineLANParser.convert(move: self)
   }
 
+  /// The SAN represenation of the move, including its assessment.
+  ///
+  /// For example, `"e4!"` or `"Nf3?"`.
+  public var sanWithAssessment: String {
+    san + assessment.notation
+  }
+
 }
 
 // MARK: - Equatable
