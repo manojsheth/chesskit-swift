@@ -231,9 +231,13 @@ public enum PGNParser {
 
     /// Parses a string that may contain multiple PGNs and returns an array of `Game` objects.
     private static func parseIntoGames(from pgn: String) throws -> [Game] {
-        let lines = pgn.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.starts(with: "%") }
+        var lines: [String] = []
+        pgn.enumerateLines { line, _ in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if !trimmed.starts(with: "%") {
+                lines.append(trimmed)
+            }
+        }
 
         var games: [Game] = []
         var pendingComment: String?
@@ -383,10 +387,17 @@ public enum PGNParser {
     private static func startingPosition(
         from tags: Game.Tags
     ) throws -> Position {
-        if tags.setUp == "1", let position = FENParser.parse(fen: tags.fen) {
-            position
-        } else if tags.setUp == "0" || (tags.setUp.isEmpty && tags.fen.isEmpty) {
-            .standard
+        let standardFEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        
+        if tags.fen == standardFEN {
+            return .standard
+        } else if !tags.fen.isEmpty, tags.setUp != "0" {
+            guard let position = FENParser.parse(fen: tags.fen) else {
+                throw Error.invalidSetUpOrFEN
+            }
+            return position
+        } else if tags.setUp == "0" || tags.setUp.isEmpty {
+            return .standard
         } else {
             throw Error.invalidSetUpOrFEN
         }
