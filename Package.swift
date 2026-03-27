@@ -16,14 +16,11 @@ let package = Package(
     .library(name: "ChessKit", targets: ["ChessKit"])
   ],
   dependencies: [
-    .package(url: "https://github.com/dduan/Dye", from: "0.0.1")
   ],
   targets: [
     .target(
       name: "ChessKit",
-      dependencies: [
-        .product(name: "Dye", package: "Dye")
-      ]
+      dependencies: []
     ),
     .testTarget(name: "ChessKitTests", dependencies: ["ChessKit"])
   ]
