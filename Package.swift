@@ -19,7 +19,12 @@ let package = Package(
     .package(url: "https://github.com/dduan/Dye", from: "0.0.1")
   ],
   targets: [
-    .target(name: "ChessKit"),
+    .target(
+      name: "ChessKit",
+      dependencies: [
+        .product(name: "Dye", package: "Dye")
+      ]
+    ),
     .testTarget(name: "ChessKitTests", dependencies: ["ChessKit"])
   ]
 )

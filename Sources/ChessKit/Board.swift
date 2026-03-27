@@ -9,13 +9,6 @@ public struct Board: Sendable {
 
   // MARK: Properties
 
-  /// The delegate for this board object.
-  ///
-  /// Used to communicate certain events as
-  /// the ``position`` changes.
-  @available(*, deprecated, message: "Monitor `state` property of `Board` instead.")
-  public weak var delegate: BoardDelegate?
-
   /// The current position represented on the board.
   ///
   /// To manually change the position, use ``Board/update(position:resetPositionCounts:)``.
@@ -267,12 +260,9 @@ public struct Board: Sendable {
         if (move.end.rank == 8 && move.piece.color == .white) || (move.end.rank == 1 && move.piece.color == .black) {
           if move.promotedPiece == nil {
             state = .promotion(move: move)
-            delegate?.willPromote(with: move)
             // prevent any more state changes until promotion is completed,
             // as the board is in an "incomplete" state
             return
-          } else {
-            delegate?.didPromote(with: move)
           }
         }
       }
@@ -310,22 +300,16 @@ public struct Board: Sendable {
 
     if checkState == .checkmate {
       state = .checkmate(color: moveColor.opposite)
-      delegate?.didEnd(with: .win(moveColor))
     } else if checkState == .stalemate {
       state = .draw(reason: .stalemate)
-      delegate?.didEnd(with: .draw(.stalemate))
     } else if position.clock.halfmoves >= Clock.halfMoveMaximum {
       state = .draw(reason: .fiftyMoves)
-      delegate?.didEnd(with: .draw(.fiftyMoves))
     } else if position.hasInsufficientMaterial {
       state = .draw(reason: .insufficientMaterial)
-      delegate?.didEnd(with: .draw(.insufficientMaterial))
     } else if positionHashCounts[position.hashValue] == 3 {
       state = .draw(reason: .repetition)
-      delegate?.didEnd(with: .draw(.repetition))
     } else if checkState == .check {
       state = .check(color: moveColor.opposite)
-      delegate?.didCheckKing(ofColor: moveColor.opposite)
     } else {
       state = .active
     }
