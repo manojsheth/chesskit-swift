@@ -96,7 +96,7 @@ public enum PGNParser {
             if let sourceRootComment = source.moves.dictionary[source.startingIndex]?.move.comment, !sourceRootComment.isEmpty {
                 if let destRootMove = destination.moves.dictionary[destination.startingIndex]?.move {
                     let existingComment = destRootMove.comment
-                    let newComment = existingComment.isEmpty ? sourceRootComment : "\(existingComment)\n--\n\(sourceRootComment)"
+                    let newComment = existingComment.isEmpty ? sourceRootComment : "\(existingComment) -- \(sourceRootComment)"
                     destination.annotate(moveAt: destination.startingIndex, comment: newComment)
                 }
             }
@@ -126,7 +126,7 @@ public enum PGNParser {
         if let sourceRootComment = source.moves.dictionary[source.startingIndex]?.move.comment, !sourceRootComment.isEmpty {
             if let destinationMove = destination.moves[mergeIndex] {
                 let existingComment = destinationMove.comment
-                let newComment = existingComment.isEmpty ? sourceRootComment : "\(existingComment)\n--\n\(sourceRootComment)"
+                let newComment = existingComment.isEmpty ? sourceRootComment : "\(existingComment) -- \(sourceRootComment)"
                 destination.annotate(moveAt: mergeIndex, assessment: destinationMove.assessment, comment: newComment)
             }
         }
@@ -265,7 +265,7 @@ public enum PGNParser {
                 let startingComment = game.moves.dictionary[game.startingIndex]?.move.comment ?? ""
                 if !startingComment.isEmpty {
                     if let existingComment = pendingComment {
-                        pendingComment = "\(existingComment)\n--\n\(startingComment)"
+                        pendingComment = "\(existingComment) -- \(startingComment)"
                     } else {
                         pendingComment = startingComment
                     }
@@ -277,7 +277,7 @@ public enum PGNParser {
 
                     let newComment = existingComment.isEmpty
                         ? commentToApply
-                        : "\(commentToApply)\n--\n\(existingComment)"
+                        : "\(commentToApply) -- \(existingComment)"
 
                     game.annotate(moveAt: game.startingIndex, comment: newComment)
                     pendingComment = nil
@@ -340,14 +340,14 @@ public enum PGNParser {
 
                 // Merge comments
                 if !sourceMove.comment.isEmpty {
-                    let existingComments = existingMove.comment.components(separatedBy: "\n--\n")
+                    let existingComments = existingMove.comment.components(separatedBy: " -- ")
                     let trimmedSourceComment = sourceMove.comment.trimmingCharacters(in: .whitespacesAndNewlines)
 
                     if !existingComments.contains(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == trimmedSourceComment }) {
                         if existingMove.comment.isEmpty {
                             existingMove.comment = sourceMove.comment
                         } else {
-                            existingMove.comment += "\n--\n\(sourceMove.comment)"
+                            existingMove.comment += " -- \(sourceMove.comment)"
                         }
                         needsUpdate = true
                     }
