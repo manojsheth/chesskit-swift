@@ -34,6 +34,11 @@ public enum PGNParser {
         }
 
         var mergedGame = firstGame
+        var fenIndex: [String: MoveTree.Index] = [:]
+        for (idx, pos) in mergedGame.positions {
+            fenIndex[boardStateKey(for: pos)] = idx
+        }
+        
         var gamesToMerge = Array(games.dropFirst())
         var unmergedCountInPreviousPass = -1
 
@@ -49,7 +54,7 @@ public enum PGNParser {
             var stillUnmerged: [Game] = []
             for gameToMerge in gamesToMerge {
                 do {
-                    try merge(source: gameToMerge, into: &mergedGame)
+                    try fastMerge(source: gameToMerge, into: &mergedGame, fenIndex: &fenIndex)
                 } catch Error.mergePointNotFound {
                     stillUnmerged.append(gameToMerge)
                 }
@@ -84,60 +89,12 @@ public enum PGNParser {
     ///   - destination: The `Game` to merge the moves into. This game will be modified.
     /// - Throws: An error if the games do not share the same starting position, or if a merge point cannot be found for different starting positions.
     public static func merge(source: Game, into destination: inout Game) throws {
-        guard let sourceStartingPosition = source.startingPosition,
-              let destinationStartingPosition = destination.startingPosition else {
-            // A game must have a starting position to be merged.
-            return
+        // Fallback for direct API calls to build an index instantly before delegating to fastMerge
+        var fenIndex: [String: MoveTree.Index] = [:]
+        for (idx, pos) in destination.positions {
+            fenIndex[boardStateKey(for: pos)] = idx
         }
-
-        // Case 1: The source game starts from the same board state as the destination game.
-        if sourceStartingPosition.hasSameBoardState(as: destinationStartingPosition) {
-            // Merge root comment
-            if let sourceRootComment = source.moves.dictionary[source.startingIndex]?.move.comment, !sourceRootComment.isEmpty {
-                if let destRootMove = destination.moves.dictionary[destination.startingIndex]?.move {
-                    let existingComment = destRootMove.comment
-                    let newComment = existingComment.isEmpty ? sourceRootComment : "\(existingComment) -- \(sourceRootComment)"
-                    destination.annotate(moveAt: destination.startingIndex, comment: newComment)
-                }
-            }
-            // Merge moves from the root.
-            mergeMoves(
-                from: source,
-                into: &destination,
-                sourceParentIndex: source.startingIndex,
-                mergedParentIndex: destination.startingIndex
-            )
-            return
-        }
-
-        // Case 2: Source game starts from a position found within the destination game.
-        // Search for a matching position in the destination game.
-        let mergePoint = destination.positions.first { (_, position) in
-            position.hasSameBoardState(as: sourceStartingPosition)
-        }
-
-        guard let (mergeIndex, _) = mergePoint else {
-            // No merge point found. Throw error so it can be re-queued.
-            throw Error.mergePointNotFound
-        }
-
-        // A merge point was found. Now merge comments and moves.
-        // 1. Merge source's root comment into the move leading to the merge point.
-        if let sourceRootComment = source.moves.dictionary[source.startingIndex]?.move.comment, !sourceRootComment.isEmpty {
-            if let destinationMove = destination.moves[mergeIndex] {
-                let existingComment = destinationMove.comment
-                let newComment = existingComment.isEmpty ? sourceRootComment : "\(existingComment) -- \(sourceRootComment)"
-                destination.annotate(moveAt: mergeIndex, assessment: destinationMove.assessment, comment: newComment)
-            }
-        }
-
-        // 2. Merge moves recursively, starting from the merge point.
-        mergeMoves(
-            from: source,
-            into: &destination,
-            sourceParentIndex: source.startingIndex,
-            mergedParentIndex: mergeIndex
-        )
+        try fastMerge(source: source, into: &destination, fenIndex: &fenIndex)
     }
 
     /// Converts a ``Game`` object into a PGN string.
@@ -192,6 +149,12 @@ public enum PGNParser {
     }
 
     // MARK: Private
+    
+    private static func boardStateKey(for position: Position) -> String {
+        let components = position.fen.split(separator: " ")
+        guard components.count >= 4 else { return position.fen }
+        return components.prefix(4).joined(separator: " ")
+    }
 
     /// Consolidates a list of games by merging them into each other where possible.
     private static func consolidate(games: [Game]) throws -> [Game] {
@@ -202,6 +165,12 @@ public enum PGNParser {
 
         while !remainingGames.isEmpty {
             var baseGame = remainingGames.removeFirst()
+            
+            var fenIndex: [String: MoveTree.Index] = [:]
+            for (idx, pos) in baseGame.positions {
+                fenIndex[boardStateKey(for: pos)] = idx
+            }
+            
             var gamesToTryMerging = remainingGames
             var unmergedThisRound: [Game] = []
             var wasMergeSuccessfulInPass = true
@@ -213,7 +182,7 @@ public enum PGNParser {
 
                 for gameToMerge in gamesToTryMerging {
                     do {
-                        try merge(source: gameToMerge, into: &baseGame)
+                        try fastMerge(source: gameToMerge, into: &baseGame, fenIndex: &fenIndex)
                         wasMergeSuccessfulInPass = true // A merge happened!
                     } catch Error.mergePointNotFound {
                         unmergedThisRound.append(gameToMerge)
@@ -321,9 +290,58 @@ public enum PGNParser {
 
         return games
     }
+    
+    private static func fastMerge(source: Game, into destination: inout Game, fenIndex: inout [String: MoveTree.Index]) throws {
+        guard let sourceStartingPosition = source.startingPosition,
+              let destinationStartingPosition = destination.startingPosition else {
+            return
+        }
 
-    /// Recursively merges moves from a source game into a destination game.
-    private static func mergeMoves(from sourceGame: Game, into mergedGame: inout Game, sourceParentIndex: MoveTree.Index, mergedParentIndex: MoveTree.Index) {
+        let sourceKey = boardStateKey(for: sourceStartingPosition)
+        let destKey = boardStateKey(for: destinationStartingPosition)
+
+        if sourceKey == destKey {
+            // Merge root comment
+            if let sourceRootComment = source.moves.dictionary[source.startingIndex]?.move.comment, !sourceRootComment.isEmpty {
+                if let destRootMove = destination.moves.dictionary[destination.startingIndex]?.move {
+                    let existingComment = destRootMove.comment
+                    let newComment = existingComment.isEmpty ? sourceRootComment : "\(existingComment) -- \(sourceRootComment)"
+                    destination.annotate(moveAt: destination.startingIndex, comment: newComment)
+                }
+            }
+            
+            fastMergeMoves(
+                from: source,
+                into: &destination,
+                sourceParentIndex: source.startingIndex,
+                mergedParentIndex: destination.startingIndex,
+                fenIndex: &fenIndex
+            )
+            return
+        }
+
+        guard let mergeIndex = fenIndex[sourceKey] else {
+            throw Error.mergePointNotFound
+        }
+
+        if let sourceRootComment = source.moves.dictionary[source.startingIndex]?.move.comment, !sourceRootComment.isEmpty {
+            if let destinationMove = destination.moves[mergeIndex] {
+                let existingComment = destinationMove.comment
+                let newComment = existingComment.isEmpty ? sourceRootComment : "\(existingComment) -- \(sourceRootComment)"
+                destination.annotate(moveAt: mergeIndex, assessment: destinationMove.assessment, comment: newComment)
+            }
+        }
+
+        fastMergeMoves(
+            from: source,
+            into: &destination,
+            sourceParentIndex: source.startingIndex,
+            mergedParentIndex: mergeIndex,
+            fenIndex: &fenIndex
+        )
+    }
+
+    private static func fastMergeMoves(from sourceGame: Game, into mergedGame: inout Game, sourceParentIndex: MoveTree.Index, mergedParentIndex: MoveTree.Index, fenIndex: inout [String: MoveTree.Index]) {
         let sourceVariations = sourceGame.moves.variations(for: sourceParentIndex)
 
         for sourceMoveIndex in sourceVariations {
@@ -374,12 +392,15 @@ public enum PGNParser {
                     mergedGame.annotate(moveAt: existingIndex, assessment: existingMove.assessment, comment: existingMove.comment)
                 }
             } else {
-                // The move is new in this variation, so we add it.
+                // The move is new in this variation, so we add it and update the fast index immediately.
                 nextMergedIndex = mergedGame.make(move: sourceMove, from: mergedParentIndex)
+                if let newPos = mergedGame.positions[nextMergedIndex] {
+                    fenIndex[boardStateKey(for: newPos)] = nextMergedIndex
+                }
             }
 
             // Recurse down this branch.
-            mergeMoves(from: sourceGame, into: &mergedGame, sourceParentIndex: sourceMoveIndex, mergedParentIndex: nextMergedIndex)
+            fastMergeMoves(from: sourceGame, into: &mergedGame, sourceParentIndex: sourceMoveIndex, mergedParentIndex: nextMergedIndex, fenIndex: &fenIndex)
         }
     }
 

@@ -64,7 +64,7 @@ extension PGNParser {
                     currentToken = ""
                     currentTokenType = .comment
                 } else { // Nested comment, '{' is part of the text
-                    currentToken += String(c)
+                    currentToken.append(c)
                 }
                 commentDepth += 1
                 continue
@@ -80,14 +80,14 @@ extension PGNParser {
                     currentToken = ""
                     currentTokenType = .none
                 } else { // Still inside a nested comment, '}' is part of the text
-                    currentToken += String(c)
+                    currentToken.append(c)
                 }
                 continue
             }
             
             // If we are inside a comment, accumulate and skip other logic.
             if commentDepth > 0 {
-                currentToken += String(c)
+                currentToken.append(c)
                 continue
             }
             
@@ -101,7 +101,7 @@ extension PGNParser {
             
             // Handle token accumulation for all other types.
             if currentTokenType.isValid(character: c) {
-                currentToken += String(c)
+                currentToken.append(c)
             } else {
                 // Character does not match current token type, so flush the old one and start a new one.
                 if !currentToken.isEmpty, let token = currentTokenType.convert(currentToken) {

@@ -104,8 +104,6 @@ public struct Game: Codable, Hashable, Sendable {
       return existingMoveIndex
     }
 
-    let newIndex = moves.add(move: move, toParentIndex: index)
-
     guard let currentPosition = positions[index] else {
       return index
     }
@@ -114,7 +112,10 @@ public struct Game: Codable, Hashable, Sendable {
     var board = Board(position: currentPosition)
     
     // 2. Perform the move using the Board. This applies all rules (castling, captures, en passant, etc.).
-    board.move(pieceAt: move.start, to: move.end)
+    // If the move is illegal, return the original index and do not add the move to the tree.
+    guard board.move(pieceAt: move.start, to: move.end) != nil else {
+        return index
+    }
     
     // 3. If the parsed move was a promotion, we need to complete it on the board.
     if let promotedPiece = move.promotedPiece,
@@ -125,7 +126,10 @@ public struct Game: Codable, Hashable, Sendable {
     // 4. The board's internal position is now the correct new state.
     let newPosition = board.position
 
+    // 5. Safely add the move to the tree and map the position, since we now know it is fully legal.
+    let newIndex = moves.add(move: move, toParentIndex: index)
     positions[newIndex] = newPosition
+    
     return newIndex
   }
 
