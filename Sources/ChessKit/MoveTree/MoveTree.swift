@@ -54,12 +54,31 @@ public struct MoveTree: Codable, Hashable, Sendable {
     self.lastMainVariationIndex = try container.decodeIfPresent(Index.self, forKey: .lastMainVariationIndex) ?? self.minimumIndex
     self.dictionary = try container.decode([Index: Node].self, forKey: .dictionary)
 
+    // --- RELINK NODES TO PREVENT INFINITE RECURSION ---
+    for node in self.dictionary.values {
+        if let nextIdx = node.decodedNextIndex, let nextNode = self.dictionary[nextIdx] {
+            node.next = nextNode
+            nextNode.previous = node
+        }
+        if let childrenIndices = node.decodedChildrenIndices {
+            for childIdx in childrenIndices {
+                if let childNode = self.dictionary[childIdx] {
+                    node.children.append(childNode)
+                    childNode.previous = node
+                }
+            }
+        }
+        // Clear temporary decode fields to free memory
+        node.decodedNextIndex = nil
+        node.decodedChildrenIndices = nil
+    }
+
     if self.dictionary[minimumIndex] == nil {
       let dummyNode = Node(move: Self.dummyMove)
       dummyNode.index = minimumIndex
       self.dictionary[minimumIndex] = dummyNode
 
-      let oldRoots = dictionary.values.filter { $0.previous == nil }
+      let oldRoots = dictionary.values.filter { $0.previous == nil && $0.index != minimumIndex }
 
       if let firstOldRoot = oldRoots.first {
         dummyNode.next = firstOldRoot
@@ -599,10 +618,39 @@ extension MoveTree {
     fileprivate(set) weak var next: Node?
     /// Children nodes (i.e. variation moves).
     fileprivate var children: [Node] = []
+      
+    // Temporary holding properties to break encoding recursion
+    fileprivate var decodedNextIndex: Index?
+    fileprivate var decodedChildrenIndices: [Index]?
+
+    enum CodingKeys: String, CodingKey {
+        case move, positionAssessment, index, nextIndex, childrenIndices
+    }
 
     fileprivate init(move: Move) {
       self.move = move
       self.index = .minimum // Default value
+    }
+      
+    required init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.move = try container.decode(Move.self, forKey: .move)
+        self.positionAssessment = try container.decodeIfPresent(Position.Assessment.self, forKey: .positionAssessment) ?? .null
+        self.index = try container.decode(Index.self, forKey: .index)
+        self.decodedNextIndex = try container.decodeIfPresent(Index.self, forKey: .nextIndex)
+        self.decodedChildrenIndices = try container.decodeIfPresent([Index].self, forKey: .childrenIndices)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(move, forKey: .move)
+        try container.encode(positionAssessment, forKey: .positionAssessment)
+        try container.encode(index, forKey: .index)
+        try container.encodeIfPresent(next?.index, forKey: .nextIndex)
+        let cIndices = children.map { $0.index }
+        if !cIndices.isEmpty {
+            try container.encode(cIndices, forKey: .childrenIndices)
+        }
     }
 
     // MARK: Equatable
@@ -614,9 +662,7 @@ extension MoveTree {
     func hash(into hasher: inout Hasher) {
       hasher.combine(move)
       hasher.combine(index)
-      hasher.combine(previous)
-      hasher.combine(next)
-      hasher.combine(children)
+      // Only hash simple identities to prevent stack overflows from cyclic graph references
     }
 
     // MARK: Sequence
@@ -632,8 +678,6 @@ extension MoveTree {
     init(start: Node?) {
       current = start
     }
-
-
 
     mutating func next() -> Node? {
       defer { current = current?.next }
