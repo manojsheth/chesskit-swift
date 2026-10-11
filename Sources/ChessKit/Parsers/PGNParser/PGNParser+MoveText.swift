@@ -152,6 +152,12 @@ extension PGNParser {
         } else {
           currentMoveIndex = .init(number: n, color: .white).previous
         }
+        // The tree always starts at the game's starting index, but a game set up from a FEN
+        // numbers its move text from the FEN's move number (e.g. "15... Nf6"), which has no
+        // position in the tree. Start from the starting position then.
+        if game.positions[currentMoveIndex] == nil {
+          currentMoveIndex = game.startingIndex
+        }
       } else if case let .san(san) = currentToken {
         currentMoveIndex = position.sideToMove == .white ? .minimum : .minimum.next
         if let position = game.positions[currentMoveIndex] {
