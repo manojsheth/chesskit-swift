@@ -387,6 +387,8 @@ public struct MoveTree: Codable, Hashable, Sendable {
     to endIndex: Index
   ) -> [(direction: PathDirection, index: Index)] {
     if startIndex == endIndex { return [] }
+    // No path to or from a move that isn't in the tree.
+    guard dictionary[startIndex] != nil, dictionary[endIndex] != nil else { return [] }
 
     if startIndex == minimumIndex {
       return history(for: endIndex).map { (.forward, $0) }

@@ -161,9 +161,12 @@ extension PGNParser {
       } else if case let .san(san) = currentToken {
         currentMoveIndex = position.sideToMove == .white ? .minimum : .minimum.next
         if let position = game.positions[currentMoveIndex] {
-          if let move = SANParser.parse(move: san, in: position) {
-            currentMoveIndex = game.make(move: move, from: currentMoveIndex)
+          // An invalid first move is an error like any other (it used to be skipped silently,
+          // so the game started from the second move and the error named the wrong move).
+          guard let move = SANParser.parse(move: san, in: position) else {
+            throw .invalidMove(san: san, fen: position.fen, moveSequence: "")
           }
+          currentMoveIndex = game.make(move: move, from: currentMoveIndex)
         }
       } else if case .result(_) = currentToken {
           // The movetext may only contain a result.
