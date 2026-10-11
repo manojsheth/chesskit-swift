@@ -64,10 +64,11 @@ final class GameTests {
     #expect(game2.moves.minimumIndex == expectedStartingIndex)
     #expect(game2.startingPosition == blackToMovePosition)
 
-    let moveIndex = game2.make(move: "O-O", from: game2.startingIndex)
+    // (Black can't castle here: the f8 bishop is still home.)
+    let moveIndex = game2.make(move: "e6", from: game2.startingIndex)
     let expectedMoveIndex = expectedStartingIndex.next
     #expect(moveIndex == expectedMoveIndex)
-    #expect(game2.moves[expectedMoveIndex] == Move(san: "O-O", position: blackToMovePosition))
+    #expect(game2.moves[expectedMoveIndex] == Move(san: "e6", position: blackToMovePosition))
   }
 
   @Test func validMoves() {
@@ -142,8 +143,9 @@ final class GameTests {
     ]
     #expect(f5History == expectedF5History)
 
+    // The root has no history.
     let emptyHistory = game.moves.history(for: .minimum)
-    #expect(emptyHistory == [.init(number: 1, color: .white)])
+    #expect(emptyHistory.isEmpty)
   }
 
   @Test func moveFuture() {
@@ -151,8 +153,10 @@ final class GameTests {
     let expectedF5Future = [MoveTree.Index(number: 3, color: .white, variation: 3)]
     #expect(f5Future == expectedF5Future)
 
+    // The root's future starts with the first move.
     let fullFuture = game.moves.future(for: .minimum)
     let expectedFullFuture = [
+      MoveTree.Index(number: 1, color: .white, variation: 0),
       MoveTree.Index(number: 1, color: .black, variation: 0),
       MoveTree.Index(number: 2, color: .white, variation: 0),
       MoveTree.Index(number: 2, color: .black, variation: 0),

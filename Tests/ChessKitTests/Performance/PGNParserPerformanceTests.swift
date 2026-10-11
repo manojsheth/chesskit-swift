@@ -26,7 +26,7 @@ final class PGNParserPerformanceTests: XCTestCase {
   }
 
   private func parsePGN() {
-    let parsedGame = try? PGNParser.parse(game: Game.fischerSpassky)
+    let parsedGame = try? PGNParser.parse(pgn: Game.fischerSpassky)
     XCTAssertNotNil(parsedGame)
   }
 

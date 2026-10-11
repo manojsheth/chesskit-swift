@@ -20,7 +20,8 @@ struct MoveTreeTests {
 
   @Test func subscriptAccess() {
     var moveTree = MoveTree()
-    #expect(moveTree[.minimum] == nil)
+    // The root holds a placeholder node (it carries the game's opening comment); no move yet.
+    #expect(moveTree[.minimum.next] == nil)
 
     let e4 = Move(san: "e4", position: .standard)
     moveTree[.minimum.next] = e4
