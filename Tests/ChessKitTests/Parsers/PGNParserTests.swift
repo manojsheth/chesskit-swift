@@ -289,6 +289,25 @@ struct PGNParserTests {
     }
   }
 
+  @Test func unclosedVariationError() throws {
+    #expect(throws: PGNParser.Error.unpairedVariationDelimiter) {
+      try PGNParser.parse(pgn: "1. e4 (1. d4 d5 *")
+    }
+    // Nested: the inner variation is closed, the outer one isn't.
+    #expect(throws: PGNParser.Error.unpairedVariationDelimiter) {
+      try PGNParser.parse(pgn: "1. e4 e5 (1... c5 2. Nf3 (2. c3 d5) 2... d6 *")
+    }
+    // Through the multi-game parser (what the app's import uses).
+    #expect(throws: PGNParser.Error.unpairedVariationDelimiter) {
+      try PGNParser.parsePotentialMultipleGames(pgn: "[Event \"A\"]\n\n1. e4 (1. d4 d5 *")
+    }
+  }
+
+  @Test func closedVariationsStillParse() throws {
+    let game = try PGNParser.parse(pgn: "1. e4 e5 (1... c5 2. Nf3 (2. c3 d5) 2... d6) 2. Nf3 *")
+    #expect(game.moves[.init(number: 2, color: .white)]?.san == "Nf3")
+  }
+
 }
 
 // MARK: - Deprecated Tests

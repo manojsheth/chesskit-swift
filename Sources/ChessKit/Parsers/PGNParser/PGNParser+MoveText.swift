@@ -255,6 +255,12 @@ extension PGNParser {
         }
       }
 
+      // A variation opened with "(" but never closed (the rest of the moves would otherwise be
+      // read as part of it, silently changing the tree).
+      guard variationStack.pop() == nil else {
+        throw .unpairedVariationDelimiter
+      }
+
       return game
     }
 
