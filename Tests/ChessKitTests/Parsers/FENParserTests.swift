@@ -68,6 +68,34 @@ struct FENParserTests {
     #expect(blackEP.enPassant == EnPassant(pawn: Piece(.pawn, color: .black, square: .e5)))
   }
 
+  /// The PGN standard writes the en-passant square after every double step; ChessKit keeps it only
+  /// when a capture is legal — for a played move and, the same way, for a parsed FEN.
+  @Test func enPassantSquareKeptOnlyWhenACaptureIsLegal() throws {
+    // After 1. e4, standard-compliant "e3": no black pawn can capture.
+    let standardE3 = try #require(Position(fen: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"))
+    #expect(standardE3.fen == "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+    var played = Board()
+    #expect(played.move(pieceAt: .e2, to: .e4) != nil)
+    #expect(played.position.fen == standardE3.fen)
+
+    // A black pawn on f4 can capture: kept.
+    let capturable = "rnbqkbnr/ppppp1pp/8/8/4Pp2/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+    #expect(Position(fen: capturable)?.fen == capturable)
+    let blackPawn = "rnbqkbnr/pppp1ppp/8/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 3"
+    #expect(Position(fen: blackPawn)?.fen == blackPawn)
+
+    // d4xe3 would expose the king on a4 to the rook on h4: not legal, so dropped — as when played.
+    let pinned = try #require(Position(fen: "8/8/8/8/k2pP2R/8/8/4K3 b - e3 0 1"))
+    #expect(pinned.fen == "8/8/8/8/k2pP2R/8/8/4K3 b - - 0 1")
+    var pinnedPlayed = Board(position: try #require(Position(fen: "8/8/8/8/k2p3R/8/4P3/4K3 w - - 0 1")))
+    #expect(pinnedPlayed.move(pieceAt: .e2, to: .e4) != nil)
+    #expect(pinnedPlayed.position.fen == pinned.fen)
+
+    // A square with no pawn that just moved past it, or the wrong side to move: dropped.
+    #expect(Position(fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq e3 0 1")?.fen.contains(" - ") == true)
+    #expect(Position(fen: "rnbqkbnr/ppppp1pp/8/8/4Pp2/8/PPPP1PPP/RNBQKBNR w KQkq e3 0 1")?.fen.contains(" - ") == true)
+  }
+
   @Test func invalidFen() {
     let p = Position(fen: "invalid")
     #expect(p == nil)

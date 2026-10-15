@@ -25,7 +25,8 @@ import Foundation
 
 public enum GameCodec {
 
-  public static let version: UInt8 = 1
+  // 2: FEN starts store `enPassantIsPossible` as checked by FENParser (was: always true).
+  public static let version: UInt8 = 2
   private static let magic: [UInt8] = Array("PGNC".utf8)
 
   // MARK: Encode

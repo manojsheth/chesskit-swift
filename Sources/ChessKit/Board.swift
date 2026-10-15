@@ -429,6 +429,16 @@ public struct Board: Sendable {
     return !isKingInCheck(piece.color, set: testSet)
   }
 
+  /// Whether a parsed position's `enPassant` can really be captured: its pawn is on that square,
+  /// the other side is to move, and a capture is legal (the same check as after a played move).
+  static func enPassantIsPossible(in position: Position) -> Bool {
+    guard let ep = position.enPassant,
+      position.piece(at: ep.pawn.square) == ep.pawn,
+      position.sideToMove == ep.pawn.color.opposite
+    else { return false }
+    return Board(position: position).enPassantIsValid
+  }
+
   /// Whether the `enPassant` stored in `position` is valid.
   private var enPassantIsValid: Bool {
     if let ep = position.enPassant {

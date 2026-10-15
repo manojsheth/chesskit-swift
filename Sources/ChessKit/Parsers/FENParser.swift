@@ -101,13 +101,21 @@ public enum FENParser {
 
     // final position
 
-    return Position(
+    var position = Position(
       pieces: pieces,
       sideToMove: sideToMove,
       legalCastlings: LegalCastlings(legal: legalCastlings),
       enPassant: enPassant,
       clock: clock
     )
+
+    // The PGN standard writes the en-passant square after every double step, even when no
+    // capture is possible; a played move keeps it only when a capture is legal. Same check
+    // here, so `… b KQkq e3 0 1` and a played 1. e4 give the same position (and FEN).
+    if position.enPassant != nil {
+      position.enPassantIsPossible = Board.enPassantIsPossible(in: position)
+    }
+    return position
   }
 
   /// Converts a ``Position`` object into a FEN string.
