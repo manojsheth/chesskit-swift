@@ -8,6 +8,9 @@ struct LegalCastlings: Codable, Hashable, Sendable {
 
   private var legal: [Castling]
 
+  /// The legal castlings, in order (GameCodec).
+  var castlings: [Castling] { legal }
+
   /// Initialize a `LegalCastlings` struct with an
   /// array of legal castling moves.
   ///

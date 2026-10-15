@@ -688,3 +688,73 @@ extension MoveTree {
   }
 
 }
+
+// MARK: - GameCodec support
+//
+// Lives in this file because `Node` (its initializer and `children`) is fileprivate.
+
+extension MoveTree {
+
+  /// The root placeholder's move (it carries the game's opening comment and assessment).
+  var rootMove: Move { dictionary[minimumIndex]!.move }
+
+  /// The root placeholder's position assessment.
+  var rootPositionAssessment: Position.Assessment { dictionary[minimumIndex]!.positionAssessment }
+
+  /// Every node except the root, breadth-first: each parent before its children, and a parent's
+  /// `next` before its `children` in their order — so `restoreNode` can rebuild the tree as is.
+  func forEachNodeBreadthFirst(
+    _ body: (_ index: Index, _ parent: Index, _ asNext: Bool, _ move: Move, _ positionAssessment: Position.Assessment) -> Void
+  ) {
+    var queue: [Node] = [rootNode]
+    var head = 0
+    while head < queue.count {
+      let node = queue[head]
+      head += 1
+      if let next = node.next {
+        body(next.index, node.index, true, next.move, next.positionAssessment)
+        queue.append(next)
+      }
+      for child in node.children {
+        body(child.index, node.index, false, child.move, child.positionAssessment)
+        queue.append(child)
+      }
+    }
+  }
+
+  /// Sets the root placeholder's opening comment / assessment.
+  mutating func restoreRoot(comment: String, assessment: Move.Assessment, positionAssessment: Position.Assessment) {
+    let root = rootNode
+    root.move.comment = comment
+    root.move.assessment = assessment
+    root.positionAssessment = positionAssessment
+  }
+
+  /// Re-attaches one node under an already restored parent. Returns false (corrupt data) if the
+  /// parent is missing, the index is taken, or the parent's `next` is already set.
+  mutating func restoreNode(index: Index, parent parentIndex: Index, move: Move, positionAssessment: Position.Assessment, asNext: Bool) -> Bool {
+    guard let parent = dictionary[parentIndex], dictionary[index] == nil, index != minimumIndex else { return false }
+    let node = Node(move: move)
+    node.index = index
+    node.positionAssessment = positionAssessment
+    node.previous = parent
+    if asNext {
+      guard parent.next == nil else { return false }
+      parent.next = node
+    } else {
+      parent.children.append(node)
+    }
+    dictionary[index] = node
+    return true
+  }
+
+  /// Finishes a restore: the main line's end and the leaf cache (as `add(move:)` maintains them).
+  mutating func finishRestore(lastMainVariationIndex: Index) {
+    self.lastMainVariationIndex = lastMainVariationIndex
+    var leaves = Set<Index>()
+    for (index, node) in dictionary where index != minimumIndex && node.next == nil && node.children.isEmpty {
+      leaves.insert(index)
+    }
+    leafNodeIndices = leaves
+  }
+}

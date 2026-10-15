@@ -46,6 +46,14 @@ public struct Game: Codable, Hashable, Sendable {
     moves = .init(startingAt: startingIndex)
   }
 
+  /// Assembles a game from its parts (GameCodec).
+  init(moves: MoveTree, startingIndex: MoveTree.Index, positions: [MoveTree.Index: Position], tags: Tags) {
+    self.moves = moves
+    self.startingIndex = startingIndex
+    self.positions = positions
+    self.tags = tags
+  }
+
   /// Initialize a game with a PGN string.
   ///
   /// - parameter pgn: A string containing a PGN representation of

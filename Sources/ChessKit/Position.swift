@@ -55,6 +55,25 @@ public struct Position: Codable, Sendable {
     self.assessment = assessment
   }
 
+  /// Restores a position from its stored parts, without parsing (GameCodec).
+  init(
+    pieceSet: PieceSet,
+    sideToMove: Piece.Color,
+    legalCastlings: LegalCastlings,
+    enPassant: EnPassant?,
+    enPassantIsPossible: Bool,
+    clock: Clock,
+    assessment: Assessment
+  ) {
+    self.pieceSet = pieceSet
+    self.sideToMove = sideToMove
+    self.legalCastlings = legalCastlings
+    self.enPassant = enPassant
+    self.enPassantIsPossible = enPassantIsPossible
+    self.clock = clock
+    self.assessment = assessment
+  }
+
   /// Initialize a move with a provided FEN string.
   ///
   /// This initializer fails if the provided FEN string is invalid.
